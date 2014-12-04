@@ -88,6 +88,8 @@ const unsigned maxLeakReport = 4;
 #endif
 
 static char *heapBase;
+static char *heapBase0;
+static memsize_t memsize0;
 static char *heapEnd;   // Equal to heapBase + (heapTotalPages * page size)
 static bool heapUseHugePages;
 static unsigned *heapBitmap;
@@ -156,6 +158,24 @@ static void initializeHeap(bool allowHugePages, unsigned pages, unsigned largeBl
         heapBase = (char *)mmap(NULL, memsize, (PROT_READ | PROT_WRITE), (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
         if (heapBase != MAP_FAILED)
         {
+            heapBase0 = heapBase;
+            memsize0 = memsize;
+            if ((memsize_t)heapBase & (HEAP_ALIGNMENT_SIZE-1))
+            {
+                DBGLOG("RoxieMemMgr: heapBase (%p) NOT aligned to 0x%llx", heapBase, HEAP_ALIGNMENT_SIZE);
+                // Don't ask for more, offset into region until aligned and then adjust:
+                // heapTotalPages
+                // memsize
+                // heapBitmapSize
+                memsize_t alignDelta = (memsize_t)heapBase % HEAP_ALIGNMENT_SIZE;
+                memsize_t alignOffset = HEAP_ALIGNMENT_SIZE - alignDelta;
+                heapBase += alignOffset;
+                memsize -= alignOffset;
+                heapTotalPages = (unsigned)(memsize / HEAP_ALIGNMENT_SIZE);
+                memsize = (memsize_t)heapTotalPages * HEAP_ALIGNMENT_SIZE;
+                heapBitmapSize = (heapTotalPages + UNSIGNED_BITS - 1) / UNSIGNED_BITS;
+                DBGLOG("RoxieMemMgr: heapBase adjusted by %lu bytes and is now %p (%u pages)", alignOffset, heapBase, heapTotalPages);
+            }
             heapUseHugePages = true;
             DBGLOG("Using Huge Pages for roxiemem");
         }
@@ -226,8 +246,7 @@ extern void releaseRoxieHeap()
 #else
         if (heapUseHugePages)
         {
-            memsize_t memsize = memsize_t(heapTotalPages) * HEAP_ALIGNMENT_SIZE;
-            munmap(heapBase, memsize);
+            munmap(heapBase0, memsize0);
             heapUseHugePages = false;
         }
         else
