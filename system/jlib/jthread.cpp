@@ -33,6 +33,7 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/resource.h>
+#include <numa.h>
 #endif
 
 #if defined(_DEBUG) && defined(_WIN32) && !defined(USING_MPATROL)
@@ -2333,4 +2334,105 @@ unsigned threadLogID()  // for use in logging
 #endif
 #endif
     return (unsigned)(memsize_t) GetCurrentThreadId(); // truncated in 64bit
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+
+//MORE: Not currently implemented for windows.
+#ifdef CPU_SETSIZE
+static unsigned getCpuId(const char * text, char * * next)
+{
+    unsigned cpu = (unsigned)strtoul(text, next, 10);
+    if (*next == text)
+        throw makeStringExceptionV(1, "Invalid CPU: %s", text);
+    else if (cpu >= CPU_SETSIZE)
+        throw makeStringExceptionV(1, "CPU %u is out of range 0..%u", cpu, CPU_SETSIZE);
+    return cpu;
+}
+#endif
+
+void setProcessAffinity(const char * cpuList)
+{
+    assertex(cpuList);
+#ifdef CPU_ZERO
+    cpu_set_t cpus;
+    CPU_ZERO(&cpus);
+
+    const char * cur = cpuList;
+    loop
+    {
+        char * next;
+        unsigned cpu1 = getCpuId(cur, &next);
+        if (*next == '-')
+        {
+            const char * range = next+1;
+            unsigned cpu2 = getCpuId(next+1, &next);
+            for (unsigned cpu= cpu1; cpu <= cpu2; cpu++)
+                CPU_SET(cpu, &cpus);
+        }
+        else
+            CPU_SET(cpu1, &cpus);
+
+        if (*next == '\0')
+            break;
+
+        if (*next != ',')
+            throw makeStringExceptionV(1, "Invalid cpu affinity list %s", cur);
+
+        cur = next+1;
+    }
+
+    if (sched_setaffinity(0, sizeof(cpu_set_t), &cpus))
+        throw makeStringException(errno, "Failed to set affinity");
+    DBGLOG("Process affinity set to %s", cpuList);
+#endif
+}
+
+void setAutoAffinity(unsigned curProcess, unsigned processPerMachine, const char * optNodes)
+{
+#ifdef CPU_ZERO
+    if (processPerMachine <= 1)
+        return;
+
+    if (numa_available() == -1)
+    {
+        DBGLOG("Numa functions not available");
+        return;
+    }
+
+    if (optNodes)
+        throw makeStringException(1, "Numa node list not yet supported");
+
+    unsigned numNumaNodes = numa_max_node()+1;
+    if (numNumaNodes <= 1)
+        return;
+
+    unsigned numNodes = 1;
+    //MORE: If processPerMachine < numNumaNodes we may want to associate with > 1 node.
+    unsigned curNode = curProcess % numNumaNodes;
+
+#if defined(LIBNUMA_API_VERSION) && (LIBNUMA_API_VERSION>=2)
+    struct bitmask * cpus = numa_allocate_cpumask();
+    numa_node_to_cpus(curNode, cpus);
+    bool ok = (numa_sched_setaffinity(0, cpus) == 0);
+    numa_bitmask_free(cpus);
+#else
+    cpu_set_t cpus;
+    CPU_ZERO(&cpus);
+    numa_node_to_cpus(curNode, (unsigned long *) &cpus, sizeof (cpus));
+    bool ok = sched_setaffinity (0, sizeof(cpus), &cpus) != 0;
+#endif
+
+    if (!ok)
+        throw makeStringExceptionV(1, "Failed to set affinity for node %u", curNode);
+
+    DBGLOG("Process bound to numa node %u of %u", curNode, numNumaNodes);
+#endif
+}
+
+void bindMemoryToLocalNodes()
+{
+#if defined(LIBNUMA_API_VERSION) && (LIBNUMA_API_VERSION>=2)
+    numa_set_bind_policy(1);
+#endif
 }
