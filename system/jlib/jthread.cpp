@@ -2365,7 +2365,7 @@ void setProcessAffinity(const char * cpuList)
         unsigned cpu1 = getCpuId(cur, &next);
         if (*next == '-')
         {
-            const char * range = next+1;
+            // unused const char * range = next+1;
             unsigned cpu2 = getCpuId(next+1, &next);
             for (unsigned cpu= cpu1; cpu <= cpu2; cpu++)
                 CPU_SET(cpu, &cpus);
@@ -2407,7 +2407,7 @@ void setAutoAffinity(unsigned curProcess, unsigned processPerMachine, const char
     if (numNumaNodes <= 1)
         return;
 
-    unsigned numNodes = 1;
+    // unused unsigned numNodes = 1;
     //MORE: If processPerMachine < numNumaNodes we may want to associate with > 1 node.
     unsigned curNode = curProcess % numNumaNodes;
 
@@ -2434,5 +2434,13 @@ void bindMemoryToLocalNodes()
 {
 #if defined(LIBNUMA_API_VERSION) && (LIBNUMA_API_VERSION>=2)
     numa_set_bind_policy(1);
+
+    unsigned numNumaNodes = numa_max_node()+1;
+    if (numNumaNodes <= 1)
+        return;
+    struct bitmask *nodes = numa_get_run_node_mask();
+    numa_set_membind(nodes);
+    DBGLOG("Process memory bound to numa nodemask 0x%x (of %u nodes total)", (unsigned)(*(nodes->maskp)), numNumaNodes);
+    numa_bitmask_free(nodes);
 #endif
 }
