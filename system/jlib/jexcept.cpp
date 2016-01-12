@@ -1204,6 +1204,7 @@ void excsighandler(int signum, siginfo_t *info, void *extra)
         return;
 #endif
     nested--;
+    abort();
 }
 
 
