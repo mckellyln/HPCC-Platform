@@ -816,6 +816,10 @@ void FileSprayer::beforeTransfer()
         checker.For(targets.ordinality(), 25, true, true);
     }
 
+    StringBuffer umask;
+    if (options->hasProp("@umask"))
+        options->getProp("@umask", umask);
+
     if (!isRecovering && !usePullOperation())
     {
         try {
