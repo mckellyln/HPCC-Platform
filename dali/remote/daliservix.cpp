@@ -926,6 +926,7 @@ enum {
     RFCgetcrc,
 //
     RFCmove,
+    RFCsetfileperms,
 
     RFCmax
     };
@@ -948,6 +949,7 @@ typedef unsigned char RemoteFileCommandType;
 #define RFSERR_SetReadOnlyFailed                8208
 #define RFSERR_GetDirFailed                     8209
 #define RFSERR_MoveFailed                       8210
+#define RFSERR_SetFilePermsFailed               8211
 
 
 #define RFEnoerror      0U
@@ -998,6 +1000,7 @@ public:
         registerCommand(RFCgetdir, &CRemoteFileServer::cmdGetDir);
         registerCommand(RFCgetcrc, &CRemoteFileServer::cmdGetCrc);
         registerCommand(RFCmove, &CRemoteFileServer::cmdMove);
+        registerCommand(RFCsetfileperms, &CRemoteFileServer::cmdSetFilePerms);
     }
 
     ~CRemoteFileServer()
@@ -1443,6 +1446,27 @@ public:
         else
             s.st_mode |= (S_IWUSR|S_IWGRP|S_IWOTH);
         chmod(filename, s.st_mode);
+        reply.append((unsigned)RFEnoerror);
+        free(filename);
+        return true;
+    }
+
+    bool cmdSetFilePerms(CMemoryBuffer &msg, CMemoryBuffer &reply)
+    {
+        char *filename = msg.readStr();
+        unsigned fPerms;
+        msg.read(fPerms);
+#ifdef _TRACE
+        LogF("setFilePerms,  '%s' 0%o",filename, fPerms);
+#endif
+        struct stat s;
+        unsigned ret;
+        if (stat(filename, &s) != 0) {
+            throwError(RFSERR_SetFilePermsFailed);
+            free(filename);
+            return false;
+        }
+        chmod(filename, fPerms&0777);
         reply.append((unsigned)RFEnoerror);
         free(filename);
         return true;

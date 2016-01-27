@@ -164,6 +164,7 @@ enum {
     RFCtreecopy,
     RFCtreecopytmp,
 #endif
+    RFCsetfileperms,
     RFCmax,
     RFCnone = 255
     };
@@ -221,6 +222,7 @@ struct mapCmdToErr_t { RFS_RemoteFileCommandType cmd; int err; } mapCmdToErr[] =
   { RFCcreatedir,   RFSERR_CreateDirFailed },
   { RFCgetdir,      RFSERR_GetDirFailed },
   { RFCgetcrc,      RFSERR_GetCrcFailed },
+  { RFCsetfileperms,RFSERR_SetFilePermsFailed },
   { RFCmax,         RFSERR_InvalidCommand }
 };
 
