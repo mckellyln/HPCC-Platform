@@ -816,9 +816,15 @@ void FileSprayer::beforeTransfer()
         checker.For(targets.ordinality(), 25, true, true);
     }
 
-    StringBuffer umask;
+    int umask = -1;
     if (options->hasProp("@umask"))
-        options->getProp("@umask", umask);
+    {
+        StringBuffer umaskStr;
+        options->getProp("@umask", umaskStr);
+        umask = (int)strtol(umaskStr.str(), NULL, 8);
+        // never strip off owner
+        umask &= 077;
+    }
 
     if (!isRecovering && !usePullOperation())
     {
@@ -834,7 +840,12 @@ void FileSprayer::beforeTransfer()
                     splitUNCFilename(remoteFilename.str(), &remoteDirectory, &remoteDirectory, NULL, NULL);
 
                     Owned<IFile> dir = createIFile(remoteDirectory.str());
+                    bool modPerms = false;
+                    if (!dir->exists() && (umask != -1))
+                        modPerms = true;
                     dir->createDirectory();
+                    if (modPerms)
+                        dir->setFilePermissions(~umask&0777);
                 }
             }
         }
@@ -872,6 +883,8 @@ void FileSprayer::beforeTransfer()
                     remote.getPath(name);
                     throwError1(DFTERR_CouldNotCreateOutput, name.str());
                 }
+                if (umask != -1)
+                    file->setFilePermissions(~umask&0666);
                 //Create the headers on the utf files.
                 unsigned headerSize = getHeaderSize(tgtFormat.type);
                 if (headerSize)
