@@ -601,6 +601,7 @@ class CTempNameHandler
 public:
     unsigned num;
     StringAttr tempdir, tempPrefix;
+    StringAttr tempdir2;
     StringAttr alttempdir; // only set if needed
     CriticalSection crit;
     bool altallowed;
@@ -623,15 +624,27 @@ public:
             return alttempdir;
         return tempdir; 
     }
-    void setTempDir(const char *name, const char *_tempPrefix, bool clear)
+    void setTempDir(const char *name, const char *_tempPrefix, bool clear, unsigned portNum=0)
     {
         assertex(name && *name);
         CriticalBlock block(crit);
         assertex(tempdir.isEmpty()); // should only be called once
         tempPrefix.set(_tempPrefix);
         StringBuffer base(name);
-        addPathSepChar(base);
-        tempdir.set(base.str());
+        if (portNum > 0)
+        {
+            tempdir2.set(base.str());
+            addPathSepChar(base);
+            base.append(portNum);
+            tempdir.set(base.str());
+            LOG(MCdebugInfo, thorJob, "mck tempdir2 : %s", tempdir2.get()); // mck
+        }
+        else
+        {
+            addPathSepChar(base);
+            tempdir.set(base.str());
+        }
+        LOG(MCdebugInfo, thorJob, "mck tempdir : %s", tempdir.get()); // mck
         recursiveCreateDirectory(tempdir);
 #ifdef _WIN32
         altallowed = false;
@@ -658,6 +671,7 @@ public:
     {
         if (dir&&*dir)
         {
+            LOG(MCdebugInfo, thorJob, "mck clearDir : %s", dir); // mck
             Owned<IDirectoryIterator> iter = createDirectoryIterator(dir);
             ForEach (*iter)
             {
@@ -681,6 +695,8 @@ public:
     {
         clearDir(tempdir,log);
         clearDir(alttempdir,log);
+        if (!tempdir2.isEmpty())
+            clearDir(tempdir2,log);
     }
     void getTempName(StringBuffer &name, const char *suffix,bool alt)
     {
@@ -704,9 +720,9 @@ void GetTempName(StringBuffer &name, const char *prefix,bool altdisk)
     TempNameHandler.getTempName(name, prefix, altdisk);
 }
 
-void SetTempDir(const char *name, const char *tempPrefix, bool clear)
+void SetTempDir(const char *name, const char *tempPrefix, bool clear, unsigned portNum)
 {
-    TempNameHandler.setTempDir(name, tempPrefix, clear);
+    TempNameHandler.setTempDir(name, tempPrefix, clear, portNum);
 }
 
 void ClearDir(const char *dir)
