@@ -403,10 +403,26 @@ int main( int argc, char *argv[]  )
                 globals->setProp("@thorTempDirectory", tempDirStr.str());
             else
                 tempDirStr.append(globals->queryProp("@thorTempDirectory"));
-            addPathSepChar(tempDirStr).append(getMachinePortBase());
 
             logDiskSpace(); // Log before temp space is cleared
-            SetTempDir(tempDirStr.str(), "thtmp", true);
+
+            bool onMasterNode = false;
+            if(masterNode && masterNode->equals(queryMyNode()))
+                onMasterNode = true;
+
+            LOG(MCdebugProgress, thorJob, "mck onMasterNode = %d", onMasterNode); // mck
+            LOG(MCdebugProgress, thorJob, "mck getPropInt(@SLAVEPROCESSNUM) = %d", globals->getPropInt("@SLAVEPROCESSNUM")); // mck
+
+            if ( (!onMasterNode) && (globals->getPropInt("@SLAVEPROCESSNUM") == 0) )
+            {
+                SetTempDir(tempDirStr.str(), "thtmp", true, getMachinePortBase());
+                addPathSepChar(tempDirStr).append(getMachinePortBase());
+            }
+            else
+            {
+                addPathSepChar(tempDirStr).append(getMachinePortBase());
+                SetTempDir(tempDirStr.str(), "thtmp", true);
+            }
 
             useMemoryMappedRead(globals->getPropBool("@useMemoryMappedRead"));
 
