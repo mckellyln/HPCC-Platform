@@ -407,7 +407,7 @@ int main( int argc, char *argv[]  )
             logDiskSpace(); // Log before temp space is cleared
 
             bool onMasterNode = false;
-            if(masterNode && masterNode->equals(queryMyNode()))
+            if(masterNode && masterNode->endpoint().ipequals(queryMyNode()->endpoint()))
                 onMasterNode = true;
 
             LOG(MCdebugProgress, thorJob, "mck onMasterNode = %d", onMasterNode); // mck
