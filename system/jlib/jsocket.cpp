@@ -48,6 +48,8 @@
 #include <stddef.h>
 #include <errno.h>
 #include <net/if.h>
+#include <poll.h>
+#include <list>
 #endif
 #include <limits.h>
 
@@ -73,10 +75,13 @@
 # ifdef _HAS_EPOLL_SUPPORT
 #  include <unistd.h>
 #  include <sys/epoll.h>
+#  include <sys/time.h>
+#  include <sys/resource.h>
 #  ifndef EPOLLRDHUP
 //  Centos 5.x bug - epoll.h does not define but its in the kernel
 #   define EPOLLRDHUP 0x2000
 #  endif
+#  define _USE_LLIST // new linked-list method
 # endif
 #endif
 
@@ -127,7 +132,6 @@
 #define LOGERR(err,ref,info)
 #define LOGERR2(err,ref,info)
 #endif
-
 
 JSocketStatistics STATS;
 static bool IP4only=false;              // slighly faster if we know no IPv6
@@ -303,6 +307,8 @@ struct MCASTREQ
 
 };
 
+#define CHECKSOCKIDRANGE(s, max) { if ((s<0)||(s>=(int)max)) THROWJSOCKEXCEPTION2(JSOCKERR_handle_too_large); }
+
 #ifdef __APPLE__
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0x4000
@@ -317,6 +323,8 @@ struct MCASTREQ
 #define XFD_ZERO(s) FD_ZERO(s)
 #define SEND_FLAGS 0
 #define CHECKSOCKRANGE(s)
+#define _USE_SELECT // Windows bug 309411 - WSAPoll does not report failed connections - wont fix
+// #define poll(a, b, c) WSAPoll((a), (b), (c))
 #elif defined(__FreeBSD__) || defined(__APPLE__)
 #define XFD_SETSIZE FD_SETSIZE
 #define T_FD_SET fd_set
@@ -1212,9 +1220,12 @@ bool CSocket::connect_timeout( unsigned timeout, bool noexception)
     unsigned remaining;
     unsigned refuseddelay = 1;
     int err;
-    while (!tm.timedout(&remaining)) {
+    while (!tm.timedout(&remaining))
+    {
         err = pre_connect(false);
-        if ((err == JSE_INPROGRESS)||(err == JSE_WOULDBLOCK)) {
+        if ((err == JSE_INPROGRESS)||(err == JSE_WOULDBLOCK))
+        {
+#ifdef _USE_SELECT
             T_FD_SET fds;
             struct timeval tv;
             CHECKSOCKRANGE(sock);
@@ -1226,8 +1237,16 @@ bool CSocket::connect_timeout( unsigned timeout, bool noexception)
             tv.tv_sec = remaining / 1000;
             tv.tv_usec = (remaining % 1000)*1000;
             int rc = ::select( sock + 1, NULL, (fd_set *)&fds, (fd_set *)&except, &tv );
-            if (rc>0) {
-                // select succeeded - return error from socket (0 if connected)
+#else
+            struct pollfd fds[1];
+            fds[0].fd = sock;
+            fds[0].events = POLLOUT;
+            fds[0].revents = 0;
+            int rc = ::poll(fds, 1, remaining);
+#endif
+            if (rc>0)
+            {
+                // poll succeeded - return error from socket (0 if connected)
                 socklen_t errlen = sizeof(err);
                 rc = getsockopt(sock, SOL_SOCKET, SO_ERROR, (char *)&err, &errlen); // check for error
                 if ((rc!=0)&&!err) 
@@ -1235,14 +1254,17 @@ bool CSocket::connect_timeout( unsigned timeout, bool noexception)
                 if (err) //  probably ECONNREFUSED but treat all errors same
                     refused_sleep(tm,refuseddelay);
             }
-            else if (rc<0) { 
+            else if (rc<0)
+            {
                 err = ERRNO();
-                LOGERR2(err,2,"::select");
+                LOGERR2(err,2,"::poll");
             }
         }
-        if (err==0) {
+        if (err==0)
+        {
             err = post_connect();
-            if (err==0) {
+            if (err==0)
+            {
                 STATS.connects++;
                 STATS.connecttime+=usTick()-startt;
 #ifdef _TRACE
@@ -1313,16 +1335,21 @@ void CSocket::connect_wait(unsigned timems)
                 blockselect = true;
         }
         err = pre_connect(blockselect);             
-        if (blockselect) {
+        if (blockselect)
+        {
             if (err&&!exit)
                 refused_sleep(tm,refuseddelay); //  probably ECONNREFUSED but treat all errors same
         }
-        else {
+        else
+        {
             unsigned timeoutms = (exit||(remaining<10000))?10000:remaining;
     #ifndef BLOCK_POLLED_SINGLE_CONNECTS
             unsigned polltime = 1;
     #endif
-            while (!blockselect && ((err == JSE_INPROGRESS)||(err == JSE_WOULDBLOCK))) {
+            while (!blockselect && ((err == JSE_INPROGRESS)||(err == JSE_WOULDBLOCK)))
+            {
+
+#ifdef _USE_SELECT
                 T_FD_SET fds;
                 struct timeval tv;
                 CHECKSOCKRANGE(sock);
@@ -1339,8 +1366,21 @@ void CSocket::connect_wait(unsigned timems)
                 tv.tv_usec = 0;
     #endif
                 int rc = ::select( sock + 1, NULL, (fd_set *)&fds, (fd_set *)&except, &tv );
-                if (rc>0) {
-                    // select succeeded - return error from socket (0 if connected)
+#else
+                struct pollfd fds[1];
+                fds[0].fd = sock;
+                fds[0].events = POLLOUT;
+                fds[0].revents = 0;
+    #ifdef BLOCK_POLLED_SINGLE_CONNECTS
+                int pollTimeOut = timeoutms;
+    #else
+                int pollTimeOut = 0;
+    #endif
+                int rc = ::poll(fds, 1, pollTimeOut);
+#endif
+                if (rc>0)
+                {
+                    // poll succeeded - return error from socket (0 if connected)
                     socklen_t errlen = sizeof(err);
                     rc = getsockopt(sock, SOL_SOCKET, SO_ERROR, (char *)&err, &errlen); // check for error
                     if ((rc!=0)&&!err)
@@ -1349,12 +1389,14 @@ void CSocket::connect_wait(unsigned timems)
                         refused_sleep(tm,refuseddelay); //  probably ECONNREFUSED but treat all errors same
                     break;
                 }
-                if (rc<0) { 
+                if (rc<0)
+                {
                     err = ERRNO();
-                    LOGERR2(err,2,"::select");
+                    LOGERR2(err,2,"::poll");
                     break;
                 }
-                if (!timeoutms) {
+                if (!timeoutms)
+                {
     #ifdef SOCKTRACE
                     PROGLOG("connecttimeout: timed out");
     #endif
@@ -1459,6 +1501,7 @@ int CSocket::wait_read(unsigned timeout)
 {
     int ret = 0;
     while (sock!=INVALID_SOCKET) {
+#ifdef _USE_SELECT
         T_FD_SET fds;
         CHECKSOCKRANGE(sock);
         XFD_ZERO(&fds);
@@ -1472,6 +1515,13 @@ int CSocket::wait_read(unsigned timeout)
             tv.tv_usec = (timeout % 1000)*1000;
             ret = ::select( sock + 1, (fd_set *)&fds, NULL, NULL, &tv );
         }
+#else
+        struct pollfd fds[1];
+        fds[0].fd = sock;
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+        ret = ::poll(fds, 1, timeout);
+#endif
         if (ret==SOCKET_ERROR) {
             int err = ERRNO();
             if (err!=JSE_INTR) {   // else retry (should adjust time but for our usage don't think it matters that much)
@@ -1489,6 +1539,7 @@ int CSocket::wait_write(unsigned timeout)
 {
     int ret = 0;
     while (sock!=INVALID_SOCKET) {
+#ifdef _USE_SELECT
         T_FD_SET fds;
         CHECKSOCKRANGE(sock);
         XFD_ZERO(&fds);
@@ -1502,6 +1553,13 @@ int CSocket::wait_write(unsigned timeout)
             tv.tv_usec = (timeout % 1000)*1000;
             ret = ::select( sock + 1, NULL, (fd_set *)&fds, NULL, &tv );
         }
+#else
+        struct pollfd fds[1];
+        fds[0].fd = sock;
+        fds[0].events = POLLOUT;
+        fds[0].revents = 0;
+        ret = ::poll(fds, 1, timeout);
+#endif
         if (ret==SOCKET_ERROR) {
             int err = ERRNO();
             if (err!=JSE_INTR) {   // else retry (should adjust time but for our usage don't think it matters that much)
@@ -3619,7 +3677,6 @@ protected:
     CriticalSection sect;
     Semaphore ticksem;
     atomic_t tickwait;
-    SelectItemArray items;
     unsigned offset;
     bool selectvarschange;
     unsigned waitingchange;
@@ -3669,31 +3726,6 @@ public:
 #endif
     }
 
-    bool remove(ISocket *sock)
-    {
-        if (terminating)
-            return false;
-        CriticalBlock block(sect);
-        if (sock==NULL) { // wait until no changes outstanding
-            while (selectvarschange) {
-                waitingchange++;
-                CriticalUnblock unblock(sect);
-                waitingchangesem.wait();
-            }
-            return true;
-        }
-        ForEachItemIn(i,items) {
-            SelectItem &si = items.element(i);
-            if (!si.del&&(si.sock==sock)) {
-                si.del = true;
-                selectvarschange = true;
-                triggerselect();
-                return true;
-            }
-        }
-        return false;
-    }
-
     void stop(bool wait)
     {
         terminating = true;
@@ -3714,6 +3746,7 @@ public:
             LOGERR2(ERRNO(),1,"CSocketBaseThread select handle");
             return false;
         }
+#ifdef _USE_SELECT
         T_FD_SET fds;
         struct timeval tv;
         CHECKSOCKRANGE(sock);
@@ -3744,22 +3777,33 @@ public:
         }
         else if (rc>0)
             PROGLOG("CSocketBaseThread: select handle %d selected(2) %d",sock,rc);
-        return true;
-    }
-
-    bool checkSocks()
-    {
-        bool ret = false;
-        ForEachItemIn(i,items) {
-            SelectItem &si = items.element(i);
-            if (si.del)
-                ret = true; // maybe that bad one
-            else  if (!sockOk(si.handle)) {
-                si.del = true;
-                ret = true;
-            }
+#else
+        struct pollfd fds[1];
+        fds[0].fd = sock;
+        fds[0].events = POLLIN | POLLOUT;
+        fds[0].revents = 0;
+        int rc = ::poll(fds, 1, 0);
+        if (rc<0)
+        {
+            StringBuffer sockstr;
+            const char *tracename = sockstr.append((unsigned)sock).str();
+            LOGERR2(ERRNO(),3,"CSocketBaseThread poll handle");
+            return false;
         }
-        return ret;
+        else if (rc>0)
+        {
+            if (fds[0].revents & POLLNVAL)
+            {
+                StringBuffer sockstr;
+                const char *tracename = sockstr.append((unsigned)sock).str();
+                LOGERR2(ERRNO(),3,"CSocketBaseThread poll handle");
+                return false;
+            }
+            else
+                PROGLOG("CSocketBaseThread: select handle %d selected(2) %d",sock,rc);
+        }
+#endif
+        return true;
     }
 
     virtual void closedummy() = 0;
@@ -3767,6 +3811,8 @@ public:
 
 class CSocketSelectThread: public CSocketBaseThread
 {
+    SelectItemArray items;
+
     void opendummy()
     {
         CriticalBlock block(sect);
@@ -3965,6 +4011,45 @@ public:
         basesize = n;
     }
 
+    bool checkSocks()
+    {
+        bool ret = false;
+        ForEachItemIn(i,items) {
+            SelectItem &si = items.element(i);
+            if (si.del)
+                ret = true; // maybe that bad one
+            else  if (!sockOk(si.handle)) {
+                si.del = true;
+                ret = true;
+            }
+        }
+        return ret;
+    }
+
+    bool remove(ISocket *sock)
+    {
+        if (terminating)
+            return false;
+        CriticalBlock block(sect);
+        if (sock==NULL) { // wait until no changes outstanding
+            while (selectvarschange) {
+                waitingchange++;
+                CriticalUnblock unblock(sect);
+                waitingchangesem.wait();
+            }
+            return true;
+        }
+        ForEachItemIn(i,items) {
+            SelectItem &si = items.element(i);
+            if (!si.del&&(si.sock==sock)) {
+                si.del = true;
+                selectvarschange = true;
+                triggerselect();
+                return true;
+            }
+        }
+        return false;
+    }
 
     bool add(ISocket *sock,unsigned mode,ISocketSelectNotify *nfy)
     {
@@ -4316,11 +4401,54 @@ public:
 class CSocketEpollThread: public CSocketBaseThread
 {
     int epfd;
+#ifdef _USE_LLIST
+    SelectItem *sidummy;
+    std::list<SelectItem*> selList;
+#else
     int *epfdtbl; // table of fd<->item index for lookups
+    SelectItemArray items;
+#endif
     struct epoll_event *epevents;
+    unsigned max_sock_id;
 
+#ifdef _USE_LLIST
+    void epoll_op(int efd, int op, SelectItem *si, unsigned int event_mask)
+    {
+        int fd = si->handle;
+
+        if (fd < 0)
+        {
+# ifdef EPOLLTRACE
+            DBGLOG("EPOLL: op(%d) bad fd %d to epfd %d", op, fd, efd);
+# endif
+            return;
+        }
+
+        int srtn;
+        struct epoll_event event;
+
+        // write all bytes to eliminate uninitialized warnings
+        memset(&event, 0, sizeof(event));
+
+        event.events = event_mask;
+        event.data.ptr = si;
+
+# ifdef EPOLLTRACE
+        DBGLOG("EPOLL: op(%d) fd %d to epfd %d", op, fd, efd);
+# endif
+        srtn = ::epoll_ctl(efd, op, fd, &event);
+        // if another thread closed fd before here don't fail
+        if ( (srtn < 0) && (op != EPOLL_CTL_DEL) ){
+            int err = ERRNO();
+            WARNLOG("epoll_ctl failed op:%d, fd:%d, err=%d", op, fd, err);
+        }
+    }
+#else
     void epoll_op(int efd, int op, int fd, unsigned int event_mask)
     {
+        if (fd < 0)
+            return;
+
         int srtn;
         struct epoll_event event;
 
@@ -4340,11 +4468,13 @@ class CSocketEpollThread: public CSocketBaseThread
             WARNLOG("epoll_ctl failed op:%d, fd:%d, err=%d", op, fd, err);
         }
     }
+#endif
 
     void opendummy()
     {
         CriticalBlock block(sect);
         if (!dummysockopen) {
+            sidummy = new SelectItem;
 #ifdef _USE_PIPE_FOR_SELECT_TRIGGER
             if(pipe(dummysock)) {
                 WARNLOG("CSocketEpollThread: create pipe failed %d",ERRNO());
@@ -4362,18 +4492,28 @@ class CSocketEpollThread: public CSocketBaseThread
                     fcntl(dummysock[i], F_SETFD, flags);
                 }
             }
-            CHECKSOCKRANGE(dummysock[0]);
+# ifdef _USE_LLIST
+            sidummy->handle = dummysock[0];
+            epoll_op(epfd, EPOLL_CTL_ADD, sidummy, EPOLLIN);
+# else
+            CHECKSOCKIDRANGE(dummysock[0], max_sock_id);
             epoll_op(epfd, EPOLL_CTL_ADD, dummysock[0], EPOLLIN);
+# endif
 #else
             if (IP6preferred)
                 dummysock = ::socket(AF_INET6, SOCK_STREAM, PF_INET6);
             else
                 dummysock = ::socket(AF_INET, SOCK_STREAM, 0);
-            CHECKSOCKRANGE(dummysock);
             // added EPOLLIN also because cannot find anywhere MSG_OOB is sent
             // added here to match existing select() code above which sets
             // the except fd_set mask.
+# ifdef _USE_LLIST
+            sidummy->handle = dummysock;
+            epoll_op(epfd, EPOLL_CTL_ADD, sidummy, (EPOLLIN | EPOLLPRI));
+# else
+            CHECKSOCKIDRANGE(dummysock, max_sock_id);
             epoll_op(epfd, EPOLL_CTL_ADD, dummysock, (EPOLLIN | EPOLLPRI));
+# endif
 #endif
             dummysockopen = true;
         }
@@ -4386,16 +4526,25 @@ class CSocketEpollThread: public CSocketBaseThread
         CriticalBlock block(sect);
         if (dummysockopen) {
 #ifdef _USE_PIPE_FOR_SELECT_TRIGGER
+# ifdef _USE_LLIST
+            epoll_op(epfd, EPOLL_CTL_DEL, sidummy, 0);
+# else
             epoll_op(epfd, EPOLL_CTL_DEL, dummysock[0], 0);
-#ifdef SOCKTRACE
+# endif
+# ifdef SOCKTRACE
             PROGLOG("SOCKTRACE: Closing dummy sockets %x %d %x %d (%p)", dummysock[0], dummysock[0], dummysock[1], dummysock[1], this);
-#endif
+# endif
             ::close(dummysock[0]);
             ::close(dummysock[1]);
 #else
+# ifdef _USE_LLIST
+            epoll_op(epfd, EPOLL_CTL_DEL, sidummy, 0);
+# else
             epoll_op(epfd, EPOLL_CTL_DEL, dummysock, 0);
+# endif
             ::close(dummysock);
 #endif
+            delete sidummy;
             dummysockopen = false;
         }
     }
@@ -4415,7 +4564,24 @@ public:
         validateerrcount = 0;
         offset = 0;
         selecttrace = trc;
-        epfd = ::epoll_create(XFD_SETSIZE);
+# ifdef _USE_LLIST
+        max_sock_id = 5000;
+# else
+        struct rlimit rlim;
+        if (!getrlimit(RLIMIT_NOFILE, &rlim))
+        {
+            if (rlim.rlim_cur == RLIM_INFINITY)
+                max_sock_id = 50000;
+            else
+                max_sock_id = rlim.rlim_cur;
+        }
+        else
+            max_sock_id = 50000;
+#  ifdef EPOLLTRACE
+        DBGLOG("CSocketEpollThread: max socket id: %u", max_sock_id );
+#  endif
+# endif
+        epfd = ::epoll_create1(EPOLL_CLOEXEC);
         if (epfd < 0) {
           int err = ERRNO();
           LOGERR(err,1,"epoll_create()");
@@ -4424,18 +4590,19 @@ public:
 # ifdef EPOLLTRACE
         DBGLOG("CSocketEpollThread: creating epoll fd %d", epfd );
 # endif
+# ifndef _USE_LLIST
         try {
-            epfdtbl = new int[XFD_SETSIZE];
+            epfdtbl = new int[max_sock_id];
         } catch (const std::bad_alloc &e) {
             int err = ERRNO();
             LOGERR(err,1,"epfdtbl alloc()");
             THROWJSOCKEXCEPTION2(err);
         }
-        for (int i=0; i<XFD_SETSIZE; i++) {
+        for (unsigned i=0; i<max_sock_id; i++)
             epfdtbl[i] = -1;
-        }
+# endif
         try {
-            epevents = new struct epoll_event[XFD_SETSIZE];
+            epevents = new struct epoll_event[max_sock_id];
         } catch (const std::bad_alloc &e) {
             int err = ERRNO();
             LOGERR(err,1,"epevents alloc()");
@@ -4447,6 +4614,26 @@ public:
     ~CSocketEpollThread()
     {
         closedummy();
+
+#ifdef _USE_LLIST
+        for (std::list<SelectItem*>::iterator iter = selList.begin(); iter != selList.end();)
+        {
+            try
+            {
+                SelectItem *si = *iter;
+                epoll_op(epfd, EPOLL_CTL_DEL, si, 0);
+                si->nfy->Release();
+                si->sock->Release();
+            }
+            catch (IException *e)
+            {
+                EXCLOG(e,"~CSocketEpollThread");
+                e->Release();
+            }
+            delete *iter;
+            iter = selList.erase(iter);
+        }
+#else
         ForEachItemIn(i,items) {
             try {
                 SelectItem &si = items.element(i);
@@ -4459,22 +4646,75 @@ public:
                 e->Release();
             }
         }
+#endif
+
         if (epfd >= 0) {
 # ifdef EPOLLTRACE
             DBGLOG("EPOLL: closing epfd %d", epfd );
 # endif
             ::close(epfd);
             epfd = -1;
+# ifndef _USE_LLIST
             delete [] epfdtbl;
+# endif
             delete [] epevents;
         }
     }
 
     Owned<IException> termexcept;
 
-    void updateItems()
+    void updateItems(unsigned &ns)
     {
         // must be in CriticalBlock block(sect);
+
+#ifdef _USE_LLIST
+        ns = 0;
+        for (std::list<SelectItem*>::iterator iter = selList.begin(); iter != selList.end();)
+        {
+            SelectItem *si = *iter;
+            if (si->del)
+            {
+                epoll_op(epfd, EPOLL_CTL_DEL, si, 0);
+                si->nfy->Release();
+                try
+                {
+#ifdef SOCKTRACE
+                    PROGLOG("CSocketEpollThread::updateItems release %d",si->handle);
+#endif
+                    si->sock->Release();
+                }
+                catch (IException *e)
+                {
+                    EXCLOG(e,"CSocketEpollThread::updateItems");
+                    e->Release();
+                }
+                delete *iter;
+                iter = selList.erase(iter);
+            }
+            else
+            {
+                if (si->add_epoll)
+                {
+                    si->add_epoll = false;
+                    int ep_mode;
+                    if (si->mode != 0)
+                    {
+                        ep_mode = 0;
+                        if (si->mode & SELECTMODE_READ)
+                            ep_mode |= EPOLLIN;
+                        if (si->mode & SELECTMODE_WRITE)
+                            ep_mode |= EPOLLOUT;
+                        if (si->mode & SELECTMODE_EXCEPT)
+                            ep_mode |= EPOLLPRI;
+                        if (ep_mode != 0)
+                            epoll_op(epfd, EPOLL_CTL_ADD, si, ep_mode);
+                    }
+                }
+                ++iter;
+                ns++;
+            }
+        }
+#else
         unsigned n = items.ordinality();
         bool reindex = false;
         for (unsigned i=0;i<n;) {
@@ -4508,7 +4748,7 @@ public:
             else
                 i++;
         }
-        assertex(n<=XFD_SETSIZE-1);
+        assertex(n<=max_sock_id-1);
         if (reindex) {
 # ifdef EPOLLTRACE
             int max_sockid = 0;
@@ -4548,12 +4788,105 @@ public:
             DBGLOG("EPOLL: leaving updateItems(), reindex = %d", reindex);
 # endif
         }
+#endif
+    }
+
+    bool checkSocks()
+    {
+        bool ret = false;
+
+#ifdef _USE_LLIST
+        for (std::list<SelectItem*>::iterator iter = selList.begin(); iter != selList.end();)
+        {
+            SelectItem *si = *iter;
+            if (si->del)
+                ret = true; // maybe that bad one
+            else  if (!sockOk(si->handle))
+            {
+                si->del = true;
+                ret = true;
+            }
+            ++iter;
+        }
+#else
+        ForEachItemIn(i,items) {
+            SelectItem &si = items.element(i);
+            if (si.del)
+                ret = true; // maybe that bad one
+            else  if (!sockOk(si.handle)) {
+                si.del = true;
+                ret = true;
+            }
+        }
+#endif
+
+        return ret;
+    }
+
+    bool remove(ISocket *sock)
+    {
+        if (terminating)
+            return false;
+        CriticalBlock block(sect);
+        if (sock==NULL) { // wait until no changes outstanding
+            while (selectvarschange) {
+                waitingchange++;
+                CriticalUnblock unblock(sect);
+                waitingchangesem.wait();
+            }
+            return true;
+        }
+
+#ifdef _USE_LLIST
+        for (std::list<SelectItem*>::iterator iter = selList.begin(); iter != selList.end();)
+        {
+            SelectItem *si = *iter;
+            if ( !si->del && (si->sock==sock) )
+            {
+                si->del = true;
+                selectvarschange = true;
+                triggerselect();
+                return true;
+            }
+            ++iter;
+        }
+#else
+        ForEachItemIn(i,items) {
+            SelectItem &si = items.element(i);
+            if (!si.del&&(si.sock==sock)) {
+                si.del = true;
+                selectvarschange = true;
+                triggerselect();
+                return true;
+            }
+        }
+#endif
+
+        return false;
     }
 
     bool add(ISocket *sock,unsigned mode,ISocketSelectNotify *nfy)
     {
         // maybe check once to prevent 1st delay? TBD
         CriticalBlock block(sect);
+
+#ifdef _USE_LLIST
+        for (std::list<SelectItem*>::iterator iter = selList.begin(); iter != selList.end();)
+        {
+            SelectItem *si = *iter;
+            if ( !si->del && (si->sock==sock) )
+                si->del = true;
+            ++iter;
+        }
+        SelectItem *sn = new SelectItem;
+        sn->nfy = LINK(nfy);
+        sn->sock = LINK(sock);
+        sn->mode = (byte)mode;
+        sn->handle = (T_SOCKET)sock->OShandle();
+        sn->del = false;
+        sn->add_epoll = true;
+        selList.push_back(sn);
+#else
         unsigned n=0;
         ForEachItemIn(i,items) {
             SelectItem &si = items.element(i);
@@ -4565,17 +4898,19 @@ public:
                     n++;
             }
         }
-        if (n>=XFD_SETSIZE-1)   // leave 1 spare
+        if (n>=max_sock_id-1)   // leave 1 spare
             return false;
         SelectItem sn;
         sn.nfy = LINK(nfy);
         sn.sock = LINK(sock);
         sn.mode = (byte)mode;
         sn.handle = (T_SOCKET)sock->OShandle();
-        CHECKSOCKRANGE(sn.handle);
+        CHECKSOCKIDRANGE(sn.handle, max_sock_id);
         sn.del = false;
         sn.add_epoll = true;
         items.append(sn);
+#endif
+
         selectvarschange = true;
         triggerselect();
         return true;
@@ -4600,18 +4935,17 @@ public:
         }
         else
             validateerrcount = 0;
-        updateItems();
+        updateItems(ni);
 #ifndef _USE_PIPE_FOR_SELECT_TRIGGER
         opendummy();
 #endif
-        ni = items.ordinality();
         validateselecterror = 0;
     }
 
     int run()
     {
+        unsigned ni = 0;
         try {
-            unsigned ni = 0;
             unsigned numto = 0;
             unsigned lastnumto = 0;
             unsigned totnum = 0;
@@ -4632,7 +4966,7 @@ public:
                     continue;
                 }
 
-                int n = ::epoll_wait(epfd, epevents, XFD_SETSIZE, 1000);
+                int n = ::epoll_wait(epfd, epevents, max_sock_id, 1000);
 
 # ifdef EPOLLTRACE
                 if(n > 0)
@@ -4641,7 +4975,8 @@ public:
 
                 if (terminating)
                     break;
-                if (n < 0) {
+                if (n < 0)
+                {
                     CriticalBlock block(sect);
                     int err = ERRNO();
                     if (err != JSE_INTR) {
@@ -4657,7 +4992,8 @@ public:
                     }
                     n = 0;
                 }
-                else if (n>0) {
+                else if (n>0)
+                {
                     validateerrcount = 0;
                     numto = 0;
                     lastnumto = 0;
@@ -4667,36 +5003,47 @@ public:
                     {
                         CriticalBlock block(sect);
 
-                        for (int j=0;j<n;j++) {
+                        for (int j=0;j<n;j++)
+                        {
+                            int tfd = -1;
+# ifdef _USE_LLIST
+                            SelectItem *epsi = (SelectItem *)epevents[j].data.ptr;
+                            if (epsi)
+                                tfd = epsi->handle;
+# else
+                            tfd = epevents[j].data.fd;
+# endif
 # ifdef EPOLLTRACE
-                            DBGLOG("EPOLL: epevents[%d].data.fd = %d, epfdtbl = %d, emask = %d", j, epevents[j].data.fd, epfdtbl[epevents[j].data.fd], epevents[j].events);
+                            DBGLOG("EPOLL: epevents[%d].data.fd = %d, emask = %d", j, tfd, epevents[j].events);
 # endif
+                            if (tfd >= 0)
+                            {
 # ifdef _USE_PIPE_FOR_SELECT_TRIGGER
-                            if ((dummysockopen) && (epevents[j].data.fd == dummysock[0])) {
-                                resettrigger();
-                                continue;
-                            }
-# endif
-                            if (epevents[j].data.fd >= 0) {
-                                // assertex(epfdtbl[epevents[j].data.fd] >= 0);
-                                if (epfdtbl[epevents[j].data.fd] < 0)
+                                if ( (dummysockopen) && (tfd == dummysock[0]) )
                                 {
-                                    WARNLOG("epoll event for invalid fd: index = %d, fd = %d, eventmask = %u", j, epevents[j].data.fd, epevents[j].events);
+                                    resettrigger();
                                     continue;
                                 }
-                                SelectItem *epsi = items.getArray(epfdtbl[epevents[j].data.fd]);
-                                if (!epsi->del) {
+# endif
+# ifndef _USE_LLIST
+                                if (epfdtbl[tfd] < 0)
+                                {
+                                    WARNLOG("epoll event for invalid fd: index = %d, fd = %d, eventmask = %u", j, tfd, epevents[j].events);
+                                    continue;
+                                }
+                                SelectItem *epsi = items.getArray(epfdtbl[tfd]);
+# endif
+                                if (!epsi->del)
+                                {
                                     unsigned int ep_mode = 0;
-                                    if (epevents[j].events & (EPOLLIN | EPOLLHUP | EPOLLERR)) {
+                                    if (epevents[j].events & (EPOLLIN | EPOLLHUP | EPOLLERR))
                                         ep_mode |= SELECTMODE_READ;
-                                    }
-                                    if (epevents[j].events & EPOLLOUT) {
+                                    if (epevents[j].events & EPOLLOUT)
                                         ep_mode |= SELECTMODE_WRITE;
-                                    }
-                                    if (epevents[j].events & EPOLLPRI) {
+                                    if (epevents[j].events & EPOLLPRI)
                                         ep_mode |= SELECTMODE_EXCEPT;
-                                    }
-                                    if (ep_mode != 0) {
+                                    if (ep_mode != 0)
+                                    {
                                         tonotify.append(*epsi);
                                         tonotify.element(tonotify.length()-1).mode = ep_mode;
                                     }
@@ -4715,7 +5062,8 @@ public:
                         }
                     }
                 }
-                else  {
+                else
+                {
                     validateerrcount = 0;
                     if ((++numto>=lastnumto*2)) {
                         lastnumto = numto;
@@ -4738,7 +5086,7 @@ public:
         }
         CriticalBlock block(sect);
         try {
-            updateItems();
+            updateItems(ni);
         }
         catch (IException *e) {
             EXCLOG(e,"CSocketEpollThread(2)");
@@ -5098,7 +5446,7 @@ public:
                         state = Scancelled;
                     if (state==Scancelled)
                         return false;
-                    { 
+                    {
                         CriticalUnblock unblock(crit);
                         newsock=listensock->accept(true);
                         break;
@@ -6044,21 +6392,25 @@ public:
             if (oneshot||(waitremaining<remaining))
                 remaining = waitremaining;
             int err = 0;
-            if (!isopen||initerr) {
+            if (!isopen||initerr)
+            {
                 isopen = true;
                 err = initerr?initerr:sock->pre_connect(false);
                 initerr = 0;
                 if ((err == JSE_INPROGRESS)||(err == JSE_WOULDBLOCK))
                     err = 0; // continue
-                else {
+                else
+                {
                     if (err==0)
                         connectdone = true; // done immediately
                     else if(!oneshot) //  probably ECONNREFUSED but treat all errors same
                         refused_sleep((waitremaining==remaining)?waittm:connecttm,refuseddelay); // this stops becoming cpu bound
                 }
             }
-            if (!connectdone&&(err==0)) {
+            if (!connectdone&&(err==0))
+            {
                 SOCKET s = sock->sock;
+#ifdef _USE_SELECT
                 CHECKSOCKRANGE(s);
                 T_FD_SET fds;
                 struct timeval tv;
@@ -6070,12 +6422,20 @@ public:
                 tv.tv_sec = remaining / 1000;
                 tv.tv_usec = (remaining % 1000)*1000;
                 int rc = ::select( s + 1, NULL, (fd_set *)&fds, (fd_set *)&except, &tv );
+#else
+                struct pollfd fds[1];
+                fds[0].fd = s;
+                fds[0].events = POLLOUT;
+                fds[0].revents = 0;
+                int rc = ::poll(fds, 1, remaining);
+#endif
                 if (rc==0) 
                     break; // timeout
                 done = true;
                 err = 0;
-                if (rc>0) {
-                    // select succeeded - return error from socket (0 if connected)
+                if (rc>0)
+                {
+                    // poll succeeded - return error from socket (0 if connected)
                     socklen_t errlen = sizeof(err);
                     rc = getsockopt(s, SOL_SOCKET, SO_ERROR, (char *)&err, &errlen); // check for error
                     if ((rc!=0)&&!err) 
@@ -6083,14 +6443,17 @@ public:
                     if (err&&!oneshot) //  probably ECONNREFUSED but treat all errors same
                         refused_sleep((waitremaining==remaining)?waittm:connecttm,refuseddelay); // this stops becoming cpu bound
                 }
-                else { // select failed
+                else
+                {   // poll failed
                     err = ERRNO();
-                    LOGERR(err,2,"CSocketConnectWait ::select");
+                    LOGERR(err,2,"CSocketConnectWait ::poll");
                 }
             }
-            if (err==0) {
+            if (err==0)
+            {
                 err = sock->post_connect();
-                if (err==0) {
+                if (err==0)
+                {
                     successfulConnect();
                     return sock.getClear();
                 }
@@ -6098,14 +6461,14 @@ public:
             sock->errclose();
             isopen = false;
         } while (!waittimedout&&!oneshot);
-        if (connectimedout) {
+        if (connectimedout)
+        {
             STATS.failedconnects++;
             STATS.failedconnecttime+=usTick()-startt;
             const char* tracename = sock->tracename;
             THROWJSOCKEXCEPTION(JSOCKERR_connection_failed);
         }
         return NULL;
-
     }
 
 };
@@ -6126,14 +6489,14 @@ int wait_multiple(bool isRead,               //IN   true if wait read, false it 
     if (numSocks == 0)
         THROWJSOCKEXCEPTION2(JSOCKERR_bad_address);
 
-    SOCKET maxSocket = 0;
-    T_FD_SET fds;
-    XFD_ZERO(&fds);
-
-    //Add each SOCKET in array to T_FD_SET
 #ifdef _DEBUG
     StringBuffer dbgSB("wait_multiple() on sockets :");
 #endif
+#ifdef _USE_SELECT
+    SOCKET maxSocket = 0;
+    T_FD_SET fds;
+    XFD_ZERO(&fds);
+    //Add each SOCKET in array to T_FD_SET
     for (aindex_t idx = 0; idx < numSocks; idx++)
     {
 #ifdef _DEBUG
@@ -6144,12 +6507,34 @@ int wait_multiple(bool isRead,               //IN   true if wait read, false it 
         maxSocket = s > maxSocket ? s : maxSocket;
         FD_SET((unsigned)s, &fds);
     }
+#else
+    struct pollfd *fds = nullptr;
+    try
+    {
+        fds = new pollfd[numSocks];
+    }
+    catch (const std::bad_alloc &e)
+    {
+        int err = ERRNO();
+        throw MakeStringException(-1,"wait_multiple::fds malloc failure %d", err);
+    }
+    for (aindex_t idx = 0; idx < numSocks; idx++)
+    {
+#ifdef _DEBUG
+        dbgSB.appendf(" %d",socks.item(idx));
+#endif
+        SOCKET s = socks.item(idx);
+        fds[idx].fd = s;
+        fds[idx].events = isRead ? POLLIN : POLLOUT;
+        fds[idx].revents = 0;
+    }
+#endif
 #ifdef _DEBUG
     DBGLOG("%s",dbgSB.str());
 #endif
-
     //Check socket states
-    int res;
+    int res = 0;
+#ifdef _USE_SELECT
     if (timeoutMS == WAIT_FOREVER)
         res = ::select( maxSocket + 1, isRead ? (fd_set *)&fds : NULL, isRead ? NULL : (fd_set *)&fds, NULL, NULL );
     else
@@ -6159,36 +6544,49 @@ int wait_multiple(bool isRead,               //IN   true if wait read, false it 
         tv.tv_usec = (timeoutMS % 1000)*1000;
         res = ::select( maxSocket + 1,  isRead ? (fd_set *)&fds : NULL, isRead ? NULL : (fd_set *)&fds, NULL, &tv );
     }
-
-    if (res != SOCKET_ERROR)
+#else
+    res = poll(fds, numSocks, timeoutMS);
+#endif
+    if (res > 0)
     {
 #ifdef _DEBUG
         StringBuffer dbgSB("wait_multiple() ready socket(s) :");
 #endif
         //Build up list of socks which are ready for accept read/write without blocking
-        for (aindex_t idx = 0; res && idx < socks.length(); idx++)
+        for (aindex_t idx = 0; idx < numSocks; idx++)
         {
-            if (FD_ISSET(socks.item(idx), &fds))
+            SOCKET s = socks.item(idx);
+#ifdef _USE_SELECT
+            if (FD_ISSET(s, &fds))
+#else
+            if ( (fds[idx].revents) && (!(fds[idx].revents & POLLNVAL)) )
+#endif
             {
 #ifdef _DEBUG
-                dbgSB.appendf(" %d",socks.item(idx));
+                dbgSB.appendf(" %d",s);
 #endif
-                readySocks.append(socks.item(idx));
+                readySocks.append(s);
                 if ((int) readySocks.length() == res)
                     break;
             }
         }
 #ifdef _DEBUG
-        if (res)
-            DBGLOG("%s",dbgSB.str());
+        DBGLOG("%s",dbgSB.str());
+#endif
+#ifndef _USE_SELECT
+        delete [] fds;
 #endif
     }
-    else
+    else if (res == SOCKET_ERROR)
     {
+        res = 0; // dont return negative on failure
         int err = ERRNO();
+#ifndef _USE_SELECT
+        delete [] fds;
+#endif
         if (err != JSE_INTR)
         {
-            throw MakeStringException(-1,"wait_multiple::select error %d", err);
+            throw MakeStringException(-1,"wait_multiple::poll error %d", err);
         }
     }
     return res;
