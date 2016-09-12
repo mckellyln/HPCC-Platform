@@ -191,6 +191,12 @@
       <xsl:apply-templates select="@*[string(.) != '']"/>
       
       <xsl:copy-of select="/Environment/Software/Directories"/> 
+
+      <xsl:variable name="addresscleanerinstance" select="@addrCleanerPlugin"/>
+      <xsl:if  test="/Environment/Software/AddrCleanerPluginProcess[@name=$addresscleanerinstance]">
+          <xsl:copy-of select="/Environment/Software/AddrCleanerPluginProcess[@name=$addresscleanerinstance]"/>
+      </xsl:if>
+
       <Debug>
         <xsl:for-each select="Debug/@*">
           <xsl:if test="string(.) != ''">

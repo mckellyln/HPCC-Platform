@@ -157,6 +157,12 @@
                     <xsl:copy-of select="@priority"/>
                 </xsl:copy>
             </xsl:for-each>
+
+            <xsl:variable name="addresscleanerinstance" select="@addrCleanerPlugin"/>
+            <xsl:if  test="/Environment/Software/AddrCleanerPluginProcess[@name=$addresscleanerinstance]">
+                <xsl:copy-of select="/Environment/Software/AddrCleanerPluginProcess[@name=$addresscleanerinstance]"/>
+            </xsl:if>
+
             <xsl:for-each select="RoxieFarmProcess">
                 <xsl:element name="RoxieFarmProcess">
                     <xsl:copy-of select="@*[name()!='name' and name()!='level']"/>
