@@ -21,6 +21,8 @@ CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/espsmcservice.xsd.in ${CMAKE_CURRENT_
 CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/ftslave_linux.xsd.in ${CMAKE_CURRENT_BINARY_DIR}/ftslave_linux.xsd)
 CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/roxie.xsd.in ${CMAKE_CURRENT_BINARY_DIR}/roxie.xsd)
 CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/thor.xsd.in ${CMAKE_CURRENT_BINARY_DIR}/thor.xsd)
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/RoxieTopology.xsl.in ${CMAKE_CURRENT_BINARY_DIR}/RoxieTopology.xsl)
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/thor.xsl.in ${CMAKE_CURRENT_BINARY_DIR}/thor.xsl)
 
 if("${HPCC_PROJECT_ABBR}" STREQUAL "CC")
     configure_file("buildset${HPCC_PROJECT_ABBR}.xml.in" "buildset.xml")
@@ -35,7 +37,7 @@ FOREACH( iFILES
     ${CMAKE_CURRENT_BINARY_DIR}/ftslave_linux.xsd
     ${CMAKE_CURRENT_BINARY_DIR}/roxie.xsd
     ${CMAKE_CURRENT_BINARY_DIR}/thor.xsd
-    ${CMAKE_CURRENT_SOURCE_DIR}/thor.xsl
+    ${CMAKE_CURRENT_BINARY_DIR}/thor.xsl
     ${CMAKE_CURRENT_SOURCE_DIR}/setvars_linux.xsl
     ${CMAKE_CURRENT_SOURCE_DIR}/custom_plugin.xsd
     ${CMAKE_CURRENT_SOURCE_DIR}/dafilesrv.xsd
@@ -76,7 +78,7 @@ FOREACH( iFILES
     ${CMAKE_CURRENT_SOURCE_DIR}/eclscheduler.xsl
     ${CMAKE_CURRENT_SOURCE_DIR}/eclccserver.xsl
     ${CMAKE_CURRENT_SOURCE_DIR}/eclplus.xsl
-    ${CMAKE_CURRENT_SOURCE_DIR}/RoxieTopology.xsl
+    ${CMAKE_CURRENT_BINARY_DIR}/RoxieTopology.xsl
     ${CMAKE_CURRENT_SOURCE_DIR}/slaves.xsl
     ${CMAKE_CURRENT_SOURCE_DIR}/roxievars_linux.xsl
     ${CMAKE_CURRENT_SOURCE_DIR}/sasha.xsl

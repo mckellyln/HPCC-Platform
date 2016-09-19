@@ -402,13 +402,7 @@
           </xs:appinfo>
         </xs:annotation>
       </xs:attribute>
-      <xs:attribute name="addrCleanerPlugin" type="addrCleanerPluginType" use="optional">
-        <xs:annotation>
-          <xs:appinfo>
-            <tooltip>Specifies an Address Cleaner Plugin component.</tooltip>
-          </xs:appinfo>
-        </xs:annotation>
-      </xs:attribute>
+      @ROXIE_ADDITIONAL_PLUGIN_DEFINITION@
       <xs:attribute name="pluginsPath" type="relativePath" use="optional" default="${PLUGINS_PATH}">
         <xs:annotation>
           <xs:appinfo>
