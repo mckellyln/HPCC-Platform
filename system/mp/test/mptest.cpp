@@ -14,7 +14,8 @@ using namespace std;
 
 #define MPPORT 8888
 
-#define MULTITEST
+#define KEEPALIVE_TEST
+//#define MULTITEST
 //#define STREAMTEST
 //#define MPITEST
 //#define MPITEST2
@@ -178,6 +179,47 @@ void StreamTest(IGroup *group,ICommunicator *comm)
     STrecv.print();
 }
 
+
+void KeepAliveTest(IGroup *group,ICommunicator *comm)
+{
+    PrintLog("keepalive test");
+
+    CMessageBuffer mb;
+
+    if (group->rank()==0)
+    {
+        mb.append("Hello - KeepAliveTest");
+        comm->send(mb,1,MPTAG_TEST);
+    }
+    else if (group->rank()==1)
+    {
+        rank_t r;
+        comm->recv(mb,0,MPTAG_TEST,&r);
+        StringAttr str;
+        mb.read(str);
+        PrintLog("(1) Received '%s' from rank %d",str.get(),r);
+    }
+
+    Sleep(60000);
+
+    PrintLog("keepalive test after delay");
+
+    if (group->rank()==1)
+    {
+        mb.append("Hello - KeepAliveTest");
+        comm->send(mb,0,MPTAG_TEST);
+    }
+    else if (group->rank()==0)
+    {
+        rank_t r;
+        comm->recv(mb,1,MPTAG_TEST,&r);
+        StringAttr str;
+        mb.read(str);
+        PrintLog("(0) Received '%s' from rank %d",str.get(),r);
+    }
+
+    comm->barrier();
+}
 
 void Test1(IGroup *group,ICommunicator *comm)
 { 
@@ -677,8 +719,8 @@ void testIPnodeHash()
 int main(int argc, char* argv[])
 {
     InitModuleObjects();
-    EnableSEHtoExceptionMapping();
 
+//  EnableSEHtoExceptionMapping();
 //  startMPServer(9123);
 //  testIPnodeHash();
 //  stopMPServer();
@@ -701,7 +743,7 @@ int main(int argc, char* argv[])
         int my_port = atoi(argv[1]);
         char logfile[256] = { "" };
         sprintf(logfile,"mptest-%d.log",my_port);
-        // openLogFile(lf, logfile);
+        openLogFile(lf, logfile);
 
         PrintLog("MPTEST: Starting %d", my_port);
 
@@ -785,6 +827,13 @@ int main(int argc, char* argv[])
         mpicomm->Release();
 
 #   else
+#    ifdef KEEPALIVE_TEST
+
+        ICommunicator * mpicomm = createCommunicator(group);
+        KeepAliveTest(group,mpicomm);
+        mpicomm->Release();
+
+#    else
 
         ICommunicator * comm = createCommunicator(group);
         for (unsigned i = 0;i<1;i++) {
@@ -805,6 +854,7 @@ int main(int argc, char* argv[])
         }
         comm->Release();
 
+#    endif
 #   endif
 #  endif
 # endif

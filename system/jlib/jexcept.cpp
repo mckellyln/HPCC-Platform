@@ -1262,10 +1262,12 @@ void jlib_decl enableSEHtoExceptionMapping()
     sigset_t blockset;
     sigemptyset(&blockset);
     act.sa_mask = blockset;
-#if defined(SA_RESETHAND)
-    act.sa_flags = SA_SIGINFO | SA_RESETHAND;
-#else
     act.sa_flags = SA_SIGINFO;
+#if defined(SA_RESETHAND)
+    act.sa_flags |= SA_RESETHAND;
+#endif
+#if defined(SA_NODEFER)
+    act.sa_flags |= SA_NODEFER;
 #endif
     act.sa_sigaction = &excsighandler; 
     sigaction(SIGSEGV, &act, NULL);

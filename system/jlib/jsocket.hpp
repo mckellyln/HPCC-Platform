@@ -373,7 +373,7 @@ public:
     virtual size32_t get_receive_buffer_size() = 0;             // get OS receive buffer
     virtual void set_receive_buffer_size(size32_t sz) = 0;      // set OS receive buffer size
 
-    virtual void set_keep_alive(bool set) = 0;                  // set option SO_KEEPALIVE
+    virtual void set_keep_alive(bool set, int idle=0, int invl=0, int cnt=0) = 0; // set option SO_KEEPALIVE
 
     virtual size32_t udp_write_to(const SocketEndpoint &ep,void const* buf, size32_t size) = 0;
     virtual bool check_connection() = 0;
@@ -536,7 +536,7 @@ extern jlib_decl bool catchWriteBuffer(ISocket * socket, MemoryBuffer & buffer);
 interface IConversation: extends IInterface
 {
     virtual bool accept(unsigned timeoutms)=0;                      // one side accepts
-    virtual void set_keep_alive(bool keepalive)=0;                  // enable keepalive for socket
+    virtual void set_keep_alive(bool keepalive, int idle=0, int invl=0, int cnt=0)=0; // enable keepalive for socket
     virtual bool connect(unsigned timeoutms)=0;                     // other side connects
     virtual bool send(MemoryBuffer &mb)=0;                          // 0 length buffer can be sent
     virtual bool recv(MemoryBuffer &mb, unsigned timeoutms)=0;      // up to protocol to terminate conversation (e.g. by zero length buffer)

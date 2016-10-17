@@ -744,7 +744,7 @@ protected: friend class CMPPacketReader;
                 if (remaining<10000)
                     remaining = 10000; // 10s min granularity for MP
                 newsock = ISocket::connect_timeout(remoteep,remaining);
-                newsock->set_keep_alive(true);
+                newsock->set_keep_alive(true, 10, 2, 2);
 #ifdef _FULLTRACE
                 LOG(MCdebugInfo(100), unknownJob, "MP: connect after socket connect, retrycount = %d", retrycount);
 #endif
@@ -1946,7 +1946,7 @@ int CMPConnectThread::run()
         }
         if (sock) {
             try {
-                sock->set_keep_alive(true);
+                sock->set_keep_alive(true, 10, 2, 2);
                 size32_t rd;
                 SocketEndpoint _remoteep;
                 SocketEndpoint hostep;

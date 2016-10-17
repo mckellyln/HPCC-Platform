@@ -422,7 +422,7 @@ public:
     bool        set_nonblock(bool on=true);
     bool        set_nagle(bool on);
     void        set_linger(int lingersecs); 
-    void        set_keep_alive(bool set);
+    void        set_keep_alive(bool set, int idle=0, int invl=0, int cnt=0);
     virtual void set_inherit(bool inherit=false);
     virtual bool check_connection();
 
@@ -1035,11 +1035,38 @@ void CSocket::set_linger(int lingertime)
     }
 }
 
-void CSocket::set_keep_alive(bool set)
+void CSocket::set_keep_alive(bool set, int idle, int invl, int cnt)
 {
     int on=set?1:0;
     if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&on, sizeof(on)) != 0) {
         WARNLOG("KeepAlive not set");
+        return;
+    }
+    if (on && idle && invl && cnt)
+    {
+        DBGLOG("TCP_KEEPALIVE for %d now set to: %d", sock, on);
+
+        int optval = idle;
+        socklen_t optlen = sizeof(optval);
+        int srtn = setsockopt(sock, SOL_TCP, TCP_KEEPIDLE, &optval, optlen);
+        if (srtn < 0)
+            DBGLOG("ERROR, setsockopt(%d, SOL_TCP, TCP_KEEPIDLE) failed (%d)", sock, errno);
+        else
+            DBGLOG("TCP_KEEPIDLE for %d now set to: %d", sock, optval);
+
+        optval = invl;
+        srtn = setsockopt(sock, SOL_TCP, TCP_KEEPINTVL, &optval, optlen);
+        if (srtn < 0)
+            DBGLOG("ERROR, setsockopt(%d, SOL_TCP, TCP_KEEPINTVL) failed (%d)", sock, errno);
+        else
+            DBGLOG("TCP_KEEPINTVL for %d now set to: %d", sock, optval);
+
+        optval = cnt;
+        srtn = setsockopt(sock, SOL_TCP, TCP_KEEPCNT, &optval, optlen);
+        if (srtn < 0)
+            DBGLOG("ERROR, setsockopt(%d, SOL_TCP, TCP_KEEPCNT) failed (%d)", sock, errno);
+        else
+            DBGLOG("TCP_KEEPCNT for %d now set to: %d", sock, optval);
     }
 }
 
@@ -5098,10 +5125,10 @@ public:
         }
     }
 
-    void set_keep_alive(bool keepalive)
+    void set_keep_alive(bool keepalive, int idle=0, int invl=0, int cnt=0)
     {
         if (sock)
-            sock->set_keep_alive(keepalive);
+            sock->set_keep_alive(keepalive, idle, invl, cnt);
     }
 
     bool connect(unsigned timeoutms)

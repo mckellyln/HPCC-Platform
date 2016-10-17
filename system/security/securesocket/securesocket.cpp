@@ -359,7 +359,7 @@ public:
         throw MakeStringException(-1, "not implemented");
     }
 
-    virtual void set_keep_alive(bool set) // set option SO_KEEPALIVE
+    virtual void set_keep_alive(bool set, int idle=0, int invl=0, int cnt=0) // set option SO_KEEPALIVE
     {
         throw MakeStringException(-1, "not implemented");
     }
