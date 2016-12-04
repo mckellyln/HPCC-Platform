@@ -1062,6 +1062,7 @@ protected: friend class CRemoteFileIO;
             }
         }
 
+        bool dont_throw = false;
         unsigned errCode;
         reply.read(errCode);
         if (errCode) {
@@ -1080,6 +1081,13 @@ protected: friend class CRemoteFileIO;
                     while (*s&&(s!=e))
                         s++;
                     msg.append(s-(const char *)rest,(const char *)rest);
+                    // compat with older dafilesrv
+                    MemoryBuffer src2;
+                    src2.append(src);
+                    RemoteFileCommandType cmd;
+                    src2.read(cmd);
+                    if (cmd == RFCsetfileperms)
+                        dont_throw = true;
                 }
                 else if (len&&(rest[len-1]==0))
                     msg.append((const char *)rest);
@@ -1091,13 +1099,18 @@ protected: friend class CRemoteFileIO;
             }
             else if(errCode == 8209)
                 msg.append("Failed to open directory.");
+            else if(dont_throw)
+                msg.append("WARNING #").append(errCode);
             else
                 msg.append("ERROR #").append(errCode);
 #ifdef _DEBUG
             ERRLOG("%s",msg.str());
             PrintStackReport();
 #endif
-            throw createDafsException(errCode,msg.str());
+            if (dont_throw)
+                WARNLOG("%s",msg.str());
+            else
+                throw createDafsException(errCode,msg.str());
         }
     }
 
