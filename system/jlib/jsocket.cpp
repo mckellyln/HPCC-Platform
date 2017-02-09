@@ -82,6 +82,14 @@
 # endif
 #endif
 
+#ifdef SOCK_CLOEXEC
+# define JSE_SOCK_DGRAM  (SOCK_DGRAM|SOCK_CLOEXEC)
+# define JSE_SOCK_STREAM (SOCK_STREAM|SOCK_CLOEXEC)
+#else
+# define JSE_SOCK_DGRAM  SOCK_DGRAM
+# define JSE_SOCK_STREAM SOCK_STREAM
+#endif
+
 // various options 
 
 #define CONNECT_TIMEOUT_REFUSED_WAIT    1000        // maximum to sleep on connect_timeout
@@ -837,7 +845,7 @@ int CSocket::pre_connect (bool block)
         targetip.ipset(returnep);
     }
     socklen_t ul = setSockAddr(u,targetip,hostport);
-    sock = ::socket(u.sa.sa_family, SOCK_STREAM, targetip.isIp4()?0:PF_INET6);
+    sock = ::socket(u.sa.sa_family, JSE_SOCK_STREAM, targetip.isIp4()?0:PF_INET6);
     owned = true;
     state = ss_pre_open;            // will be set to open by post_connect
     if (sock == INVALID_SOCKET) {
@@ -893,9 +901,9 @@ int CSocket::post_connect ()
 void CSocket::open(int listen_queue_size,bool reuseports)
 {
     if (IP6preferred)
-        sock = ::socket(AF_INET6, connectionless()?SOCK_DGRAM:SOCK_STREAM, PF_INET6);
+        sock = ::socket(AF_INET6, connectionless()?JSE_SOCK_DGRAM:JSE_SOCK_STREAM, PF_INET6);
     else
-        sock = ::socket(AF_INET, connectionless()?SOCK_DGRAM:SOCK_STREAM, 0);
+        sock = ::socket(AF_INET, connectionless()?JSE_SOCK_DGRAM:JSE_SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET) {
         THROWJSOCKEXCEPTION(ERRNO());
     }
@@ -1482,7 +1490,7 @@ void CSocket::udpconnect()
         targetip.ipset(returnep);
     }
     socklen_t  ul = setSockAddr(u,targetip,hostport);
-    sock = ::socket(u.sa.sa_family, SOCK_DGRAM, targetip.isIp4()?0:PF_INET6);
+    sock = ::socket(u.sa.sa_family, JSE_SOCK_DGRAM, targetip.isIp4()?0:PF_INET6);
 #ifdef SOCKTRACE
     PROGLOG("SOCKTRACE: udp connected socket %x %d (%p)", sock, sock, this);
 #endif
@@ -1509,16 +1517,19 @@ void CSocket::udpconnect()
 int CSocket::wait_read(unsigned timeout)
 {
     int ret = 0;
-    while (sock!=INVALID_SOCKET) {
+    while (sock!=INVALID_SOCKET)
+    {
 #ifdef _USE_SELECT
         T_FD_SET fds;
         CHECKSOCKRANGE(sock);
         XFD_ZERO(&fds);
         FD_SET((unsigned)sock, &fds);
-        if (timeout==WAIT_FOREVER) {
+        if (timeout==WAIT_FOREVER)
+        {
             ret = ::select( sock + 1, (fd_set *)&fds, NULL, NULL, NULL );
         }
-        else {
+        else
+        {
             struct timeval tv;
             tv.tv_sec = timeout / 1000;
             tv.tv_usec = (timeout % 1000)*1000;
@@ -1531,15 +1542,63 @@ int CSocket::wait_read(unsigned timeout)
         fds[0].revents = 0;
         ret = ::poll(fds, 1, timeout);
 #endif
-        if (ret==SOCKET_ERROR) {
+        if (ret == SOCKET_ERROR)
+        {   // error
             int err = ERRNO();
-            if (err!=JSE_INTR) {   // else retry (should adjust time but for our usage don't think it matters that much)
+            if (err!=JSE_INTR)
+            {   // else retry (should adjust time but for our usage don't think it matters that much)
                 LOGERR2(err,1,"wait_read");
                 break;
             }
         }
-        else
+        else if (ret == 0)
+        {   // timeout
             break;
+        }
+        else
+        {   // ret > 0 - ready or error
+#ifdef _USE_SELECT
+            if (!FD_ISSET(sock, &fds))
+            {
+                LOGERR2(998,7,"wait_read");
+                ret = -1;
+            }
+#else
+            if (fds[0].revents & (POLLIN | POLLHUP))
+            {
+                // ok
+                break;
+            }
+            else if (fds[0].revents & POLLERR)
+            {
+                char lname[256];
+                int lport = name(lname, sizeof(lname));
+                char rname[256];
+                int rport = peer_name(rname, sizeof(rname));
+                StringBuffer errStr;
+                errStr.appendf("wait_read POLLERR %u l: %s:%d r: %s:%d", sock, lname, lport, rname, rport);
+                int serror = 0;
+                socklen_t serrlen = sizeof(serror);
+                int srtn = getsockopt(sock, SOL_SOCKET, SO_ERROR, (char *)&serror, &serrlen);
+                if (srtn != 0)
+                    serror = ERRNO();
+                LOGERR2(serror,2,errStr.str());
+                // MCK - do we always force error ?
+                ret = -1;
+            }
+            else if (fds[0].revents & POLLNVAL)
+            {
+                LOGERR2(998,5,"wait_read POLLNVAL");
+                ret = -1;
+            }
+            else
+            {
+                LOGERR2(999,6,"wait_read !(POLLIN|POLLHUP)");
+                ret = -1;
+            }
+#endif
+            break;
+        }
     }
     return ret;
 }
@@ -1569,15 +1628,63 @@ int CSocket::wait_write(unsigned timeout)
         fds[0].revents = 0;
         ret = ::poll(fds, 1, timeout);
 #endif
-        if (ret==SOCKET_ERROR) {
+        if (ret==SOCKET_ERROR)
+        {
             int err = ERRNO();
-            if (err!=JSE_INTR) {   // else retry (should adjust time but for our usage don't think it matters that much)
+            if (err!=JSE_INTR)
+            {   // else retry (should adjust time but for our usage don't think it matters that much)
                 LOGERR2(err,1,"wait_write");
                 break;
             }
         }
-        else
+        else if (ret == 0)
+        {   // timeout
             break;
+        }
+        else
+        {   // ret > 0 - ready or error
+#ifdef _USE_SELECT
+            if (!FD_ISSET(sock, &fds))
+            {
+                LOGERR2(998,7,"wait_write");
+                ret = -1;
+            }
+#else
+            if (fds[0].revents & POLLOUT)
+            {
+                // ok
+                break;
+            }
+            else if (fds[0].revents & POLLERR)
+            {
+                char lname[256];
+                int lport = name(lname, sizeof(lname));
+                char rname[256];
+                int rport = peer_name(rname, sizeof(rname));
+                StringBuffer errStr;
+                errStr.appendf("wait_write POLLERR %u l: %s:%d r: %s:%d", sock, lname, lport, rname, rport);
+                int serror = 0;
+                socklen_t serrlen = sizeof(serror);
+                int srtn = getsockopt(sock, SOL_SOCKET, SO_ERROR, (char *)&serror, &serrlen);
+                if (srtn != 0)
+                    serror = ERRNO();
+                LOGERR2(serror,2,errStr.str());
+                // MCK - do we always force error ?
+                ret = -1;
+            }
+            else if (fds[0].revents & POLLNVAL)
+            {
+                LOGERR2(998,5,"wait_write POLLNVAL");
+                ret = -1;
+            }
+            else
+            {
+                LOGERR2(999,6,"wait_write !POLLOUT");
+                ret = -1;
+            }
+#endif
+            break;
+        }
     }
     return ret;
 }
@@ -3846,9 +3953,9 @@ class CSocketSelectThread: public CSocketBaseThread
             CHECKSOCKRANGE(dummysock[0]);
 #else
             if (IP6preferred)
-                dummysock = ::socket(AF_INET6, SOCK_STREAM, PF_INET6);
+                dummysock = ::socket(AF_INET6, JSE_SOCK_STREAM, PF_INET6);
             else
-                dummysock = ::socket(AF_INET, SOCK_STREAM, 0);
+                dummysock = ::socket(AF_INET, JSE_SOCK_STREAM, 0);
             CHECKSOCKRANGE(dummysock);
 #endif
             dummysockopen = true;
@@ -4467,9 +4574,9 @@ class CSocketEpollThread: public CSocketBaseThread
             epoll_op(epfd, EPOLL_CTL_ADD, sidummy, EPOLLIN);
 #else
             if (IP6preferred)
-                dummysock = ::socket(AF_INET6, SOCK_STREAM, PF_INET6);
+                dummysock = ::socket(AF_INET6, JSE_SOCK_STREAM, PF_INET6);
             else
-                dummysock = ::socket(AF_INET, SOCK_STREAM, 0);
+                dummysock = ::socket(AF_INET, JSE_SOCK_STREAM, 0);
             // added EPOLLIN also because cannot find anywhere MSG_OOB is sent
             // added here to match existing select() code above which sets
             // the except fd_set mask.
@@ -4815,17 +4922,38 @@ public:
                                 if (!epsi->del)
                                 {
                                     unsigned int ep_mode = 0;
-                                    if (epevents[j].events & (EPOLLIN | EPOLLHUP | EPOLLERR))
+                                    if (epevents[j].events & EPOLLHUP)
+                                    {
+                                        epsi->del = true;
+                                        selectvarschange = true;
+                                    }
+                                    if (epevents[j].events & EPOLLIN)
                                         ep_mode |= SELECTMODE_READ;
                                     if (epevents[j].events & EPOLLOUT)
                                         ep_mode |= SELECTMODE_WRITE;
                                     if (epevents[j].events & EPOLLPRI)
                                         ep_mode |= SELECTMODE_EXCEPT;
+                                    if (epevents[j].events & EPOLLERR)
+                                    {
+                                        char lname[256];
+                                        int lport = epsi->sock->name(lname, sizeof(lname));
+                                        char rname[256];
+                                        int rport = epsi->sock->peer_name(rname, sizeof(rname));
+                                        StringBuffer errStr;
+                                        errStr.appendf("epoll_wait EPOLLERR %u:%u l: %s:%d r: %s:%d", tfd, ep_mode, lname, lport, rname, rport);
+                                        int serror = 0;
+                                        socklen_t serrlen = sizeof(serror);
+                                        int srtn = getsockopt(tfd, SOL_SOCKET, SO_ERROR, (char *)&serror, &serrlen);
+                                        if (srtn != 0)
+                                            serror = ERRNO();
+                                        LOGERR(serror,13,errStr.str());
+                                        // MCK - dont add to ep_mode, assume already set
+                                    }
                                     if (ep_mode != 0)
                                     {
                                         tonotify.append(*epsi);
 #ifdef _TRACELINKCLOSED
-                                        // temporary, to help diagnose spurios socket closes (hpcc-15043)
+                                        // temporary, to help diagnose spurious socket closes (hpcc-15043)
                                         // currently no implementation of notifySelected() uses the mode
                                         // argument so we can pass in the epoll events mask and log that
                                         // if there is no data and the socket gets closed
