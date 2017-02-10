@@ -82,14 +82,6 @@
 # endif
 #endif
 
-#ifdef SOCK_CLOEXEC
-# define JSE_SOCK_DGRAM  (SOCK_DGRAM|SOCK_CLOEXEC)
-# define JSE_SOCK_STREAM (SOCK_STREAM|SOCK_CLOEXEC)
-#else
-# define JSE_SOCK_DGRAM  SOCK_DGRAM
-# define JSE_SOCK_STREAM SOCK_STREAM
-#endif
-
 // various options 
 
 #define CONNECT_TIMEOUT_REFUSED_WAIT    1000        // maximum to sleep on connect_timeout
@@ -467,6 +459,15 @@ private:
     int closesock()
     {
         if (sock!=INVALID_SOCKET) {
+#ifdef _TRACELINKCLOSED
+            char lname[256];
+            int lport = name(lname, sizeof(lname));
+            char rname[256];
+            int rport = peer_name(rname, sizeof(rname));
+            StringBuffer infoStr;
+            infoStr.appendf("socket close() fd: %d l: %s:%d r: %s:%d", sock, lname, lport, rname, rport);
+            DBGLOG("%s", infoStr.str());
+#endif
             T_SOCKET s = sock;
             sock = INVALID_SOCKET;
             STATS.activesockets--;
@@ -845,7 +846,7 @@ int CSocket::pre_connect (bool block)
         targetip.ipset(returnep);
     }
     socklen_t ul = setSockAddr(u,targetip,hostport);
-    sock = ::socket(u.sa.sa_family, JSE_SOCK_STREAM, targetip.isIp4()?0:PF_INET6);
+    sock = ::socket(u.sa.sa_family, SOCK_STREAM, targetip.isIp4()?0:PF_INET6);
     owned = true;
     state = ss_pre_open;            // will be set to open by post_connect
     if (sock == INVALID_SOCKET) {
@@ -901,9 +902,9 @@ int CSocket::post_connect ()
 void CSocket::open(int listen_queue_size,bool reuseports)
 {
     if (IP6preferred)
-        sock = ::socket(AF_INET6, connectionless()?JSE_SOCK_DGRAM:JSE_SOCK_STREAM, PF_INET6);
+        sock = ::socket(AF_INET6, connectionless()?SOCK_DGRAM:SOCK_STREAM, PF_INET6);
     else
-        sock = ::socket(AF_INET, connectionless()?JSE_SOCK_DGRAM:JSE_SOCK_STREAM, 0);
+        sock = ::socket(AF_INET, connectionless()?SOCK_DGRAM:SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET) {
         THROWJSOCKEXCEPTION(ERRNO());
     }
@@ -1283,7 +1284,16 @@ bool CSocket::connect_timeout( unsigned timeout, bool noexception)
                 STATS.connecttime+=usTick()-startt;
 #ifdef _TRACE
                 setTraceName();
-#endif              
+#endif
+#ifdef _TRACELINKCLOSED
+                char lname[256];
+                int lport = name(lname, sizeof(lname));
+                char rname[256];
+                int rport = peer_name(rname, sizeof(rname));
+                StringBuffer infoStr;
+                infoStr.appendf("socket connect() ok fd: %d l: %s:%d r: %s:%d", sock, lname, lport, rname, rport);
+                DBGLOG("%s", infoStr.str());
+#endif
                 return true;
             }
         }
@@ -1490,7 +1500,7 @@ void CSocket::udpconnect()
         targetip.ipset(returnep);
     }
     socklen_t  ul = setSockAddr(u,targetip,hostport);
-    sock = ::socket(u.sa.sa_family, JSE_SOCK_DGRAM, targetip.isIp4()?0:PF_INET6);
+    sock = ::socket(u.sa.sa_family, SOCK_DGRAM, targetip.isIp4()?0:PF_INET6);
 #ifdef SOCKTRACE
     PROGLOG("SOCKTRACE: udp connected socket %x %d (%p)", sock, sock, this);
 #endif
@@ -3953,9 +3963,9 @@ class CSocketSelectThread: public CSocketBaseThread
             CHECKSOCKRANGE(dummysock[0]);
 #else
             if (IP6preferred)
-                dummysock = ::socket(AF_INET6, JSE_SOCK_STREAM, PF_INET6);
+                dummysock = ::socket(AF_INET6, SOCK_STREAM, PF_INET6);
             else
-                dummysock = ::socket(AF_INET, JSE_SOCK_STREAM, 0);
+                dummysock = ::socket(AF_INET, SOCK_STREAM, 0);
             CHECKSOCKRANGE(dummysock);
 #endif
             dummysockopen = true;
@@ -4574,9 +4584,9 @@ class CSocketEpollThread: public CSocketBaseThread
             epoll_op(epfd, EPOLL_CTL_ADD, sidummy, EPOLLIN);
 #else
             if (IP6preferred)
-                dummysock = ::socket(AF_INET6, JSE_SOCK_STREAM, PF_INET6);
+                dummysock = ::socket(AF_INET6, SOCK_STREAM, PF_INET6);
             else
-                dummysock = ::socket(AF_INET, JSE_SOCK_STREAM, 0);
+                dummysock = ::socket(AF_INET, SOCK_STREAM, 0);
             // added EPOLLIN also because cannot find anywhere MSG_OOB is sent
             // added here to match existing select() code above which sets
             // the except fd_set mask.
