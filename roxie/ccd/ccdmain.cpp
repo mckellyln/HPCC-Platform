@@ -1044,6 +1044,8 @@ int STARTQUERY_API start_query(int argc, const char *argv[])
         if (!localSlave)
             openMulticastSocket();
 
+        StringBuffer certFileBuf;
+        StringBuffer keyFileBuf;
         setDaliServixSocketCaching(true);  // enable daliservix caching
         loadPlugins();
         createDelayedReleaser();
@@ -1130,10 +1132,34 @@ int STARTQUERY_API start_query(int argc, const char *argv[])
                 if (port)
                 {
                     const char *protocol = roxieFarm.queryProp("@protocol");
+                    const char *passPhrase = nullptr;
+                    const char *certFile = nullptr;
+                    const char *keyFile = nullptr;
+                    if (protocol && streq(protocol, "ssl"))
+                    {
+                        certFile = roxieFarm.queryProp("@certificateFileName");
+                        keyFile =  roxieFarm.queryProp("@privateKeyFileName");
+                        if (!certFile || !keyFile)
+                        {
+                            WARNLOG("Roxie Farm Listener protocol set to \"ssl\" but missing certificateFileName and/or privateKeyFileName tag(s)");
+                            continue;
+                        }
+                        if (isAbsolutePath(certFile))
+                            certFileBuf.append(certFile);
+                        else
+                            certFileBuf.append(codeDirectory.str()).append(certFile);
+                        if (isAbsolutePath(keyFile))
+                            keyFileBuf.append(keyFile);
+                        else
+                            keyFileBuf.append(codeDirectory.str()).append(keyFile);
+                        passPhrase = roxieFarm.queryProp("@passphrase");
+                        if (passPhrase && (int)strlen(passPhrase) == 0)
+                            passPhrase = nullptr;
+                    }
                     const char *soname =  roxieFarm.queryProp("@so");
                     const char *config  = roxieFarm.queryProp("@config");
                     Owned<IHpccProtocolPlugin> protocolPlugin = ensureProtocolPlugin(*protocolCtx, soname);
-                    roxieServer.setown(protocolPlugin->createListener(protocol ? protocol : "native", createRoxieProtocolMsgSink(ip, port, numThreads, suspended), port, listenQueue, config));
+                    roxieServer.setown(protocolPlugin->createListener(protocol ? protocol : "native", createRoxieProtocolMsgSink(ip, port, numThreads, suspended), port, listenQueue, config, certFileBuf.str(), keyFileBuf.str(), passPhrase));
                 }
                 else
                     roxieServer.setown(createRoxieWorkUnitListener(numThreads, suspended));
