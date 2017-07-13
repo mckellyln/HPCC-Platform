@@ -4799,7 +4799,8 @@ public:
         if (sMode != IFUnone && cFlags != IFUnone)
         {
             file->setCreateFlags(cFlags);
-            file->setShareMode((IFSHmode)sMode);
+            // MCK - to make this WIN dafilesrv work with 6.x HPCC clients who send incorrect sMode ...
+            // file->setShareMode((IFSHmode)sMode);
         }
         if (TF_TRACE_PRE_IO)
             PROGLOG("before open file '%s',  (%d,%d,%d,%d,0%o)",name->text.get(),(int)mode,(int)share,extraFlags,sMode,cFlags);
