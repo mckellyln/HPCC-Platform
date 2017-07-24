@@ -245,6 +245,39 @@ static StringBuffer &getLocalOrRemoteName(StringBuffer &name,const RemoteFilenam
     return name;
 }
 
+static void getFilenameFromHandle(StringBuffer &fileName, HANDLE handle)
+{
+    fileName.clear();
+#ifdef _WIN32
+    FILE_NAME_INFO FileInfo;
+    BOOL Result = GetFileInformationByHandleEx(handle, FileNameInfo, &FileInfo, sizeof(FileInfo));
+    if (Result)
+    {
+        if (FileInfo.FileNameLength > 0)
+        {
+            fileName.append(FileInfo.FileName);
+        }
+    }
+#elif defined (__linux__)
+    char rbuf[128];
+    sprintf(rbuf, "/proc/self/fd/%u", handle);
+    char obuf[512+1];
+    int olen = readlink(rbuf, obuf, 512);
+    if (olen > 0)
+    {
+        obuf[olen] = '\0';
+        fileName.append(obuf);
+    }
+#elif defined (__APPLE__)
+# ifdef F_GETPATH
+    char obuf[PATH_MAX];
+    if (fcntl(handle, F_GETPATH, obuf) >= 0)
+    {
+        fileName.append(obuf);
+    }
+# endif
+#endif
+}
 
 CFile::CFile(const char * _filename)
 {
