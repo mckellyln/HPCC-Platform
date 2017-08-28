@@ -28,7 +28,7 @@ using namespace std;
 // #define aWhile 100000
 #define aWhile 10
 
-
+unsigned int randbufsize = 0x10000;
 
 class CSectionTimer
 {
@@ -343,13 +343,34 @@ void Test7(IGroup *group,ICommunicator *comm)
 
 // #define MAXBUFFERSIZE 0x100000
 #define MAXBUFFERSIZE 0x10000
-struct CRandomBuffer
-{   
+class CRandomBuffer
+{
+public:
+    size32_t bufsize;
     size32_t size;
-    char buffer[MAXBUFFERSIZE];
+    char *buffer;
     unsigned crc;
-    void fill() {
-        size = getRandom()%MAXBUFFERSIZE;
+
+    CRandomBuffer()
+    {
+        bufsize = MAXBUFFERSIZE;
+        buffer = new char[bufsize];
+    }
+
+    CRandomBuffer(int sz)
+    {
+        bufsize = sz;
+        buffer = new char[bufsize];
+    }
+
+    virtual ~CRandomBuffer()
+    {
+        delete[] buffer;
+    }
+
+    void fill()
+    {
+        size = getRandom()%bufsize;
         // size = 100000;
         if (size) {
             char c = (char)getRandom();
@@ -366,6 +387,7 @@ struct CRandomBuffer
         }
         crc = crc32(&buffer[0],size,0);
     }
+
     bool check() 
     {
         int errs = 50;
@@ -386,12 +408,14 @@ struct CRandomBuffer
         }
         return true;
     }
+
     void serialize(MemoryBuffer &mb)
     {
         // PROGLOG("1serialize: size = %u, length = %u", size, mb.length());
         mb.append(size).append(size,buffer).append(crc);
         // PROGLOG("2serialize: size = %u, length = %u", size, mb.length());
     }
+
     void deserialize(MemoryBuffer &mb)
     {
         // PROGLOG("1de-serialize: size = %u, length = %u", size, mb.length());
@@ -419,11 +443,12 @@ void MultiTest(ICommunicator *_comm)
     public:
         Owned<ICommunicator> comm;
         Server(ICommunicator *_comm) { comm.set(_comm); }
+        bool first = true;
         int run()
         {
             unsigned n=(comm->queryGroup().ordinality()-1)*N;
             CMessageBuffer mb;
-            CRandomBuffer *buff = new CRandomBuffer();
+            CRandomBuffer *buff = new CRandomBuffer(randbufsize);
             PrintLog("MPTEST: started server, myrank = %d", comm->queryGroup().rank());
             try {
                 while(n--) {
@@ -431,7 +456,11 @@ void MultiTest(ICommunicator *_comm)
                     rank_t rr;
                     if (!comm->recv(mb,RANK_ALL,MPTAG_TEST,&rr)) 
                         break;
-                    PrintLog("MPTEST: Received from %d, len = %d",rr, mb.length());
+                    if (first)
+                    {
+                        first = false;
+                        PrintLog("MPTEST: Received from %d, len = %d",rr, mb.length());
+                    }
                     StringBuffer str;
                     comm->queryGroup().queryNode(rr).endpoint().getUrlStr(str);
                     // PrintLog("MPTEST: Received from %s",str.str());
@@ -470,13 +499,15 @@ void MultiTest(ICommunicator *_comm)
     server.start();
 
     CMessageBuffer mb;
-    CRandomBuffer *buff = new CRandomBuffer();
+    CRandomBuffer *buff = new CRandomBuffer(randbufsize);
     unsigned nr = comm->queryGroup().ordinality();
     unsigned n=(nr-1)*N;
     rank_t r = comm->queryGroup().rank();
     rank_t *targets = new rank_t[n];
     rank_t *t = targets;
     rank_t i;
+
+    bool first = true;
 
     for (i=0;i<nr;i++) 
         if (i!=r)
@@ -505,7 +536,11 @@ void MultiTest(ICommunicator *_comm)
             PrintLog("MPTEST: Sending to %s, length=%u",str.str(), mb.length());
 #endif
 
-            PrintLog("MPTEST: Sending to %d, length=%u", targets[n], mb.length());
+            if (first)
+            {
+                first = false;
+                PrintLog("MPTEST: Sending to %d, len = %u", targets[n], mb.length());
+            }
 
             if (!comm->sendRecv(mb,targets[n],MPTAG_TEST)) 
                 break;
@@ -533,103 +568,57 @@ void MPITest(IGroup *group, ICommunicator *mpicomm)
 {
     CMessageBuffer mb;
     CMessageBuffer mb2;
+    CRandomBuffer *buff = new CRandomBuffer();
+
     int myrank = group->rank();
     int numranks = group->ordinality();
 
-    int rnksumtotal = 0;
-    for(int i=0;i<numranks;i++)
-        rnksumtotal += (i+1);
+    int next = (myrank + 1) % numranks;
+    int prev = (myrank + numranks - 1) % numranks;
 
-    PrintLog("MPTEST: MPITest myrank=%d numranks=%d rnksumtotal=%d", myrank, numranks, rnksumtotal);
-
-    // send and recv to/from all others without a send/recv deadlock ...
-
-    mb.clear();
-    mb.append(myrank+1);
-
+    int mval = 10000;
     rank_t r;
-    int rankval;
-    int ranksum = myrank+1;
 
-    int left, right;
+    // typical ring ...
 
-    if (numranks == 2)
+    buff->fill();
+
+    if (0 == myrank)
     {
-        if (myrank == 0)
-        {
-            left = 1;
-            right = 1;
-            PrintLog("MPTEST: MPITest: %d send to rank %d", myrank, right);
-            mpicomm->send(mb,right,MPTAG_TEST);
-
-            mb2.clear();
-            PrintLog("MPTEST: MPITest: %d recv from rank %d", myrank, left);
-            mpicomm->recv(mb2,left,MPTAG_TEST,&r);
-            mb2.read(rankval);
-            ranksum += rankval;
-        }
-        else
-        {
-            left = 0;
-            right = 0;
-            mb2.clear();
-            PrintLog("MPTEST: MPITest: %d recv from rank %d", myrank, left);
-            mpicomm->recv(mb2,left,MPTAG_TEST,&r);
-            mb2.read(rankval);
-            ranksum += rankval;
-
-            PrintLog("MPTEST: MPITest: %d send to rank %d", myrank, right);
-            mpicomm->send(mb,right,MPTAG_TEST);
-        }
+        mb.clear();
+        mb.append(mval);
+        buff->serialize(mb);
+        // PrintLog("Process 0 sending %d to %d (%d processes in ring)", mval, next, numranks);
+        mpicomm->send(mb, next, MPTAG_TEST);
+        // PrintLog("Process 0 sent to %d", next);
     }
-    else if (numranks > 2)
+
+    while (1)
     {
-        int m = 0;
-        while (m < (numranks - 1))
-        {
-            int rankid = 0;
-            while (rankid < numranks)
-            {
-                left = rankid - 1 - m;
-                if (left < 0)
-                    left = numranks + left;
-                right = rankid + 1 + m;
-                if (right >= numranks)
-                    right = right % numranks;
+        mb2.clear();
+        mpicomm->recv(mb2, prev, MPTAG_TEST, &r);
+        mb2.read(mval);
+        // PrintLog("%d recv from rank %d", myrank, prev);
 
-                if (rankid == myrank)
-                {
-                    if (rankid == 0)
-                    {
-                        PrintLog("MPTEST: MPITest: %d send to rank %d", myrank, right);
-                        mpicomm->send(mb,right,MPTAG_TEST);
-                        mb2.clear();
-                        PrintLog("MPTEST: MPITest: %d recv from rank %d", myrank, left);
-                        mpicomm->recv(mb2,left,MPTAG_TEST,&r);
-                        mb2.read(rankval);
-                        ranksum += rankval;
-                    }
-                    else
-                    {
-                        mb2.clear();
-                        PrintLog("MPTEST: MPITest: %d recv from rank %d", myrank, left);
-                        mpicomm->recv(mb2,left,MPTAG_TEST,&r);
-                        mb2.read(rankval);
-                        ranksum += rankval;
-                        PrintLog("MPTEST: MPITest: %d send to rank %d", myrank, right);
-                        mpicomm->send(mb,right,MPTAG_TEST);
-                    }
-                }
-                rankid++;
+        if (0 == myrank) {
+            --mval;
+            // PrintLog("Process 0 decremented value: %d", mval);
+        }
 
-            }
-            m++;
+        mb.clear();
+        mb.append(mval);
+        mpicomm->send(mb, next, MPTAG_TEST);
+        if (0 == mval) {
+            // PrintLog("Process %d exiting", myrank);
+            break;
         }
     }
 
-    PrintLog("MPTEST: MPITest: ranksum = %d", ranksum);
-
-    assertex(rnksumtotal==ranksum);
+    if (0 == myrank) {
+        mb2.clear();
+        mpicomm->recv(mb2, prev, MPTAG_TEST, &r);
+        mb2.read(mval);
+    }
 
     mpicomm->barrier();
 
@@ -686,10 +675,16 @@ int main(int argc, char* argv[])
 
 #ifndef MYMACHINES
     if (argc<3) {
-        printf("\nMPTEST: Usage: %s <myport> [-f <file> | <ip:port> <ip:port> ...]\n\n", argv[0]);
+        printf("\nMPTEST: Usage: %s <myport> -f <file> | <ip:port> <ip:port> ... [-args test args]\n\n", argv[0]);
         return 0;
     }
 #endif
+
+    // host file has format:
+    //   ip:port [test args]
+    //   ip:port [test args]
+    //   ip:port [test args]
+    //   ...
 
     try {
         EnableSEHtoExceptionMapping();
@@ -709,6 +704,8 @@ int main(int argc, char* argv[])
 
         INode *nodes[1000];
 
+        int testargs = 0;
+
         const char * argfile = nullptr;
         if (argc > 3)
         {
@@ -717,13 +714,14 @@ int main(int argc, char* argv[])
         }
 
         int i = 1;
+        int nn = 0;
         if (argfile)
         {
             char hoststr[256] = { "" };
             FILE *fp = fopen(argfile, "r");
             if (fp == NULL)
             {
-                PrintLog("MPTest: Error cannot open file <%s>", argfile);
+                PrintLog("MPTEST: Error cannot open file <%s>", argfile);
                 return 1;
             }
             char line[256] = { "" };
@@ -732,25 +730,52 @@ int main(int argc, char* argv[])
                 int srtn = sscanf(line,"%s",hoststr);
                 if (srtn == 1 && line[0] != '#')
                 {
-                    PrintLog("MPTEST: adding node %d, port = <%s>", i-1, hoststr);
-                    nodes[i-1] = createINode(hoststr, my_port);
+                    PrintLog("MPTEST: adding node %d, ip:port = <%s>", nn, hoststr);
+                    nodes[nn] = createINode(hoststr, my_port);
                     i++;
+                    nn++;
                 }
             }
             fclose(fp);
+
+            if (argc > 4)
+            {
+                if (!strcmp(argv[4], "-args"))
+                {
+                    if (argc > 5)
+                        testargs = 5;
+                }
+                else
+                    testargs = 4;
+            }
         }
         else
         {
-            while (i+1 < argc && i-1 < 1000) {
-                PrintLog("MPTEST: adding node %d, port = <%s>", i-1, argv[i+1]);
-                nodes[i-1] = createINode(argv[i+1], my_port);
+            while (i+1 < argc && i-1 < 1000)
+            {
+                if (!strcmp(argv[i+1], "-args"))
+                {
+                    if (argc > i+2)
+                        testargs = i+2;
+                }
+                else if (!testargs)
+                {
+                    PrintLog("MPTEST: adding node %d, ip:port = <%s>", nn, argv[i+1]);
+                    nodes[nn] = createINode(argv[i+1], my_port);
+                    nn++;
+                }
                 i++;
             }
         }
 
-        PrintLog("MPTEST: num_nodes = %d", i-1);
+        // PrintLog("MPTEST: testargs = %d argv[%d] = %s", testargs, testargs, argv[testargs]);
 
-        IGroup *group = createIGroup(i-1,nodes);
+        if (testargs)
+            randbufsize = atoi(argv[testargs]);
+
+        PrintLog("MPTEST: num_nodes = %d", nn);
+
+        IGroup *group = createIGroup(nn,nodes);
 #else
         openLogFile(lf, "mptest.log");
         startMPServer(MPPORT);
