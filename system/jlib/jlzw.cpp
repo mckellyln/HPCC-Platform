@@ -461,7 +461,7 @@ size32_t CLZWExpander::init(const void *blk)
     return outlen;
 }
 
-void CLZWExpander::expand(void *buf)
+void CLZWExpander::expand(void *buf, size32_t len)
 {
     if (!outlen)
         return;
@@ -1466,7 +1466,7 @@ public:
         return outlen;
     }
 
-    void expand(void *buf)
+    void expand(void *buf, size32_t len)
     {
         if (!outlen)
             return;
@@ -1918,6 +1918,7 @@ class CCompressedFile : implements ICompressedFileIO, public CInterface
     unsigned curblocknum;           
     offset_t curblockpos;           // logical pos (reading only)
     MemoryBuffer curblockbuf;       // expanded buffer when reading
+    offset_t curblockDpos;
     MemoryAttr compblk;
     byte *compblkptr;
     size32_t compblklen;
@@ -1960,8 +1961,9 @@ class CCompressedFile : implements ICompressedFileIO, public CInterface
     }
 
 
-    void getblock(offset_t pos)
+    void getblock(offset_t pos, size32_t len)
     {
+        DBGLOG("mck - CCompressedFile::getblock(%llu, %u)", pos, len);
         curblockbuf.clear();
         size32_t expsize;
         curblocknum = lookupIndex(pos,curblockpos,expsize);
@@ -1975,13 +1977,15 @@ class CCompressedFile : implements ICompressedFileIO, public CInterface
         if (fileio) {
             MemoryAttr comp;
             void *b=comp.allocate(toread);
+            DBGLOG("mck - CCompressedFile::getblock(), toread = %u", toread);
             size32_t r = fileio->read(p,toread,b);
             assertex(r==toread);
-            expand(b,curblockbuf,expsize);
+            DBGLOG("mck - CCompressedFile::getblock(), expsize = %u", expsize);
+            expand(b,curblockbuf,expsize,len);
         }
         else { // memory mapped
             assertex((memsize_t)p==p);
-            expand(mmfile->base()+(memsize_t)p,curblockbuf,expsize);
+            expand(mmfile->base()+(memsize_t)p,curblockbuf,expsize,len);
         }
     }
     void checkedwrite(offset_t pos, size32_t len, const void * data) 
@@ -2029,7 +2033,7 @@ class CCompressedFile : implements ICompressedFileIO, public CInterface
         }
     }
 
-    virtual void expand(const void *compbuf,MemoryBuffer &expbuf,size32_t expsize)
+    virtual void expand(const void *compbuf,MemoryBuffer &expbuf,size32_t expsize,size32_t len)
     {
         size32_t rs = trailer.recordSize;
         if (rs) { // diff expand
@@ -2055,7 +2059,14 @@ class CCompressedFile : implements ICompressedFileIO, public CInterface
             if (exp!=expsize) {
                 throw MakeStringException(-1,"Compressed file format failure(%d,%d) - Encrypted?",exp,expsize);
             }
-            expander->expand(expbuf.reserve(exp));
+
+            DBGLOG("mck - about to call expand(), exp = %u len = %u", exp, len);
+
+            // mck - alloc space for curblock (expbuf) to fully expanded size here ...
+            void *buf = expbuf.reserve(exp);
+
+            // mck - expand entire block into expbuf - but only really need up to len ...
+            expander->expand(buf, len);
         }
     }
 
@@ -2129,6 +2140,7 @@ public:
         mode = _mode;
         curblockpos = 0;
         curblocknum = (unsigned)-1; // relies on wrap
+        curblockDpos = 0;
         compMethod = _compMethod;
         if (mode!=ICFread) {
             if (!_fileio&&_mmfile)
@@ -2214,27 +2226,37 @@ public:
     virtual size32_t read(offset_t pos, size32_t len, void * data)          
     {
         CriticalBlock block(crit);
+        DBGLOG("mck - CCompressedFile::read(%llu, %u)", pos, len);
         assertex(mode==ICFread);
         size32_t ret=0;
         while (pos<trailer.expandedSize) {
+
             if ((offset_t)len>trailer.expandedSize-pos)
                 len = (size32_t)(trailer.expandedSize-pos);
+
             if ((pos>=curblockpos)&&(pos<curblockpos+curblockbuf.length())) { // see if in current buffer
+
                 size32_t tocopy = (size32_t)(curblockpos+curblockbuf.length()-pos);
                 if (tocopy>len)
                     tocopy = len;
+
                 memcpy(data,curblockbuf.toByteArray()+(pos-curblockpos),tocopy);
+
                 ret += tocopy;
                 len -= tocopy;
                 data = (byte *)data+tocopy;
                 pos += tocopy;
             }
+
             if (len==0)
                 break;
-            getblock(pos);
+
+            getblock(pos, len);
+
         }
         return ret;
     }
+
     size32_t write(offset_t pos, size32_t len, const void * data)   
     {
         CriticalBlock block(crit);
@@ -2620,9 +2642,9 @@ public:
         return exp->init(compbuf.bufferBase());         
     }
 
-    void   expand(void *target)
+    void   expand(void *target, size32_t len)
     {
-        exp->expand(target);
+        exp->expand(target, len);
     }
 
     virtual void * bufptr()

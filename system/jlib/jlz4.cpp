@@ -18,6 +18,7 @@
 #include "platform.h"
 #include "jfcmp.hpp"
 #include "jlz4.hpp"
+#include "jlog.hpp"
 #include "lz4.h"
 
 /* Format:
@@ -76,6 +77,7 @@ class jlib_decl CLZ4Compressor : public CFcmpCompressor
         byte *out = (byte *)(cmpsize+1);
 
         *cmpsize = LZ4_compress_default((const char *)inbuf, (char *)out, toflush, LZ4_COMPRESSBOUND(toflush));
+        DBGLOG("mck - toflush = %u, cmpsize = %u", toflush, *cmpsize);
         if (*cmpsize && *cmpsize<toflush)
         {
             *(size32_t *)outbuf += toflush;
@@ -99,8 +101,9 @@ class jlib_decl CLZ4Compressor : public CFcmpCompressor
 class jlib_decl CLZ4Expander : public CFcmpExpander
 {
 public:
-    virtual void expand(void *buf)
+    virtual void expand(void *buf, size32_t len)
     {
+        DBGLOG("mck - lz4 expand(), len = %u", len);
         if (!outlen)
             return;
         if (buf)
@@ -120,7 +123,9 @@ public:
                 throw MakeStringException(MSGAUD_operator,0, "Out of memory in LZ4Expander::expand, requesting %d bytes", bufalloc);
         }
         size32_t done = 0;
-        for (;;)
+
+        // mck - while (done < len)
+        while (true)
         {
             const size32_t szchunk = *in;
             in++;
@@ -128,6 +133,7 @@ public:
             {
                 size32_t written = LZ4_decompress_safe((const char *)in, (char *)((byte *)buf+done), szchunk, outlen-done);
                 done += written;
+                DBGLOG("mck - szchunk = %u, done = %u", szchunk, done);
                 if (!written||(done>outlen))
                     throw MakeStringException(0, "LZ4Expander - corrupt data(1) %d %d",written,szchunk);
             }
@@ -136,6 +142,7 @@ public:
                 if (szchunk+done!=outlen)
                     throw MakeStringException(0, "LZ4Expander - corrupt data(2) %d %d",szchunk,outlen);
                 memcpy((byte *)buf+done,in,szchunk);
+                DBGLOG("mck - memcpy() %u", szchunk);
                 break;
             }
             in = (const size32_t *)(((const byte *)in)+szchunk);
@@ -236,6 +243,7 @@ ICompressor *createLZ4Compressor()
 
 IExpander *createLZ4Expander()
 {
+    DBGLOG("mck - lz4 createLZ4Expander()");
     return new CLZ4Expander;
 }
 

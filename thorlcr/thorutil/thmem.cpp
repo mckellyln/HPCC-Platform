@@ -1714,6 +1714,7 @@ protected:
         ForEachItemIn(f, spillFiles)
         {
             CFileOwner *fileOwner = spillFiles.item(f);
+            DBGLOG("mck - about to createRowStream()");
             Owned<IExtRowStream> strm = createRowStream(&fileOwner->queryIFile(), rowIf, rwFlags);
             instrms.append(* new CStreamFileOwner(fileOwner, strm));
         }
@@ -1770,6 +1771,7 @@ protected:
         else if (iCompare)
         {
             Owned<IRowLinkCounter> linkcounter = new CThorRowLinkCounter;
+            DBGLOG("mck - about to creatRowStreamMerger()");
             return createRowStreamMerger(instrms.ordinality(), instrms.getArray(), iCompare, false, linkcounter);
         }
         else

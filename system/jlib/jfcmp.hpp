@@ -240,7 +240,7 @@ public:
         return outlen;
     }
 
-    virtual void expand(void *buf)
+    virtual void expand(void *buf, size32_t len)
     {
         if (!outlen)
             return;
