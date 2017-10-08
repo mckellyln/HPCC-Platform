@@ -23,18 +23,46 @@
 
 project( testsocket ) 
 
+include(${HPCC_SOURCE_DIR}/esp/scm/smcscm.cmake)
+
+ADD_DEFINITIONS( -D_CONSOLE )
+
+set ( SRCS
+      ${ESPSCM_GENERATED_DIR}/ws_dfu_esp.cpp
+      ${ESPSCM_GENERATED_DIR}/ws_fs_esp.cpp
+      testsocket.cpp
+    )
+
 include_directories (            
          ./../../system/jlib
          ./../../system/include 
          ./../../system/security/securesocket
+         ./../../system/security/shared
+         ./../../esp/bindings/SOAP/xpp
+         ./../dfu
+         ./../ft
+         ./../../system/xmllib
+         ./../../esp/platform
+         ./../../esp/clients
+         ./../../rtl/include
+         ./../../system/include
+         ./../../system/jlib
+         ./../../esp/bindings
+         ./../../common/workunit
+         ./../../common/remote
+         ${CMAKE_BINARY_DIR}
+         ${CMAKE_BINARY_DIR}/oss
     )
 
-ADD_DEFINITIONS( -D_CONSOLE )
-
-set ( SRCS testsocket.cpp )
 HPCC_ADD_EXECUTABLE ( testsocket ${SRCS} )
+
+add_dependencies ( testsocket espscm )
+
 target_link_libraries ( testsocket
          jlib
+         remote
+         xmllib
+         esphttp
          )
 
 IF (USE_OPENSSL)

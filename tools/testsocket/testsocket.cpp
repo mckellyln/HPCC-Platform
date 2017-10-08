@@ -26,6 +26,7 @@
 #include "jthread.hpp"
 #include "jfile.hpp"
 #include "securesocket.hpp"
+#include "ws_dfu.hpp"
 
 bool abortEarly = false;
 bool forceHTTP = false;
