@@ -280,7 +280,6 @@ void CFile::setShareMode(IFSHmode shmode)
 {
     flags &= ~(IFSHfull|IFSHread);
     flags |= (unsigned)(shmode&(IFSHfull|IFSHread));
-    flags |= IFSHset;
 }
 
 
@@ -549,10 +548,9 @@ fileBool CFile::isReadOnly()
 
 #ifndef _WIN32
 
-static bool setShareLock(int fd,IFSHmode _share)
+static bool setShareLock(int fd,IFSHmode share)
 {
     struct flock fl;
-    IFSHmode share = (IFSHmode)((unsigned)_share & ~IFSHset);
     do {
         memset(&fl,0,sizeof(fl));
         if (share==IFSHnone)
@@ -574,7 +572,7 @@ static bool setShareLock(int fd,IFSHmode _share)
 
 #endif
 
-HANDLE CFile::openHandle(IFOmode mode, IFSHmode _sharemode, bool async, int stdh)
+HANDLE CFile::openHandle(IFOmode mode, IFSHmode sharemode, bool async, int stdh)
 {
     HANDLE handle = NULLFILE;
 #ifdef _WIN32
@@ -592,7 +590,6 @@ HANDLE CFile::openHandle(IFOmode mode, IFSHmode _sharemode, bool async, int stdh
     }
 
     DWORD share = 0;
-    IFSHmode sharemode = (IFSHmode)((unsigned)_sharemode & ~IFSHset);
     switch (sharemode) {
     case (IFSHfull|IFSHread):
     case IFSHfull:

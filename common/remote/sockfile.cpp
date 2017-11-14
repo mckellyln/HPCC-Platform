@@ -2351,12 +2351,9 @@ public:
         // then also send sMode, cFlags
         unsigned short sMode = parent->getShareMode();
         unsigned short cFlags = parent->getCreateFlags();
-
-        // mck ------------------
-        fprintf(stderr, "mck - sMode = 0x%x, compatmode = 0x%x\n", sMode, _compatmode);
         if (!(sMode & IFSHset))
         {
-            // share mode not set, match backward compatibility ...
+            // share mode not explicitly set, match backward compatibility ...
             switch ((compatIFSHmode)_compatmode)
             {
                 case compatIFSHnone:
@@ -2372,12 +2369,11 @@ public:
                     sMode = IFSHfull;
                     break;
             }
-            fprintf(stderr, "mck - new sMode = 0x%x\n", sMode);
         }
         else
-            fprintf(stderr, "mck - did not modify sMode\n");
-        // mck ------------------
-
+        {
+            sMode &= ~IFSHset;
+        }
         sendBuffer.append((RemoteFileCommandType)RFCopenIO).append(localname).append((byte)_mode).append((byte)_compatmode).append((byte)_extraFlags).append(sMode).append(cFlags);
         parent->sendRemoteCommand(sendBuffer, replyBuffer);
 
@@ -2641,17 +2637,13 @@ IFileIO * CRemoteFile::openShared(IFOmode mode,IFSHmode shmode,IFEflags extraFla
     if (fileflags&S_IXUSR)                      // this is bit hit and miss but backward compatible
         compatmode = compatIFSHexec;
     else if (fileflags&(S_IWGRP|S_IWOTH))
-    {
-        fprintf(stderr, "mck - openShared() here\n");
         compatmode = compatIFSHall;
-    }
     else if (shmode&IFSHfull)
         compatmode = compatIFSHwrite;
     else if (((shmode&(IFSHread|IFSHfull))==0) && ((fileflags&(S_IRGRP|S_IROTH))==0))
         compatmode = compatIFSHnone;
     else
         compatmode = compatIFSHread;
-    fprintf(stderr, "mck - openShared() shmode = 0x%x, compatmode = 0x%x\n", shmode, compatmode);
     Owned<CRemoteFileIO> res = new CRemoteFileIO(this);
     if (res->open(mode,compatmode,extraFlags))
         return res.getClear();

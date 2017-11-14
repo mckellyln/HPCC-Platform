@@ -494,16 +494,7 @@ protected:
 
 #if 0
             if (server != NULL)
-            {
-                try
-                {
-                    ifile->setShareMode((IFSHmode)(IFSHread|IFSHfull));
-                }
-                catch (...)
-                {
-                    fprintf(stdout, "ifile->setShareMode() exception\n");
-                }
-            }
+                ifile->setShareMode((IFSHmode)IFSHfull);
 #endif
 
             unsigned st = msTick();
@@ -600,8 +591,8 @@ protected:
 
     void testIORemote()
     {
-        const char * server = "10.176.152.113";
-        testIO(1, server);
+        const char * server = ".";
+        testIO(nr10pct, server);
     }
 };
 
