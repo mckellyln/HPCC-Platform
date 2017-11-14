@@ -492,11 +492,26 @@ protected:
 
             ifile->remove();
 
+#if 0
+            if (server != NULL)
+            {
+                try
+                {
+                    ifile->setShareMode((IFSHmode)(IFSHread|IFSHfull));
+                }
+                catch (...)
+                {
+                    fprintf(stdout, "ifile->setShareMode() exception\n");
+                }
+            }
+#endif
+
             unsigned st = msTick();
 
             IFEflags extraFlags = IFEcache;
             if (j==1)
                 extraFlags = IFEnocache;
+
             ifileio = ifile->open(IFOcreate, extraFlags);
 
             try
@@ -509,6 +524,8 @@ protected:
             }
 
             unsigned iter = nr / 40;
+            if (iter < 1)
+                iter = 1;
 
             __int64 pos = 0;
             for (unsigned i=0;i<nr;i++)
@@ -583,8 +600,8 @@ protected:
 
     void testIORemote()
     {
-        const char * server = ".";
-        testIO(nr10pct, server);
+        const char * server = "10.176.152.113";
+        testIO(1, server);
     }
 };
 
