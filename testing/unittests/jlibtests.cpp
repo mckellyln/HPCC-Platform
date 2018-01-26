@@ -591,7 +591,49 @@ protected:
     void testIORemote()
     {
         const char * server = ".";
-        testIO(nr10pct, server);
+        SocketEndpoint ep;
+        ep.set(server, 7100);
+
+        IFile *ifile[100000];
+        IFileIO *ifileio[100000];
+
+        for (int i=0; i<40000; i++)
+        {
+            StringBuffer tmpfile;
+            char tfile[256];
+            (void)tmpnam(tfile);
+            tmpfile.set(tfile);
+            try
+            {
+                ifile[i] = createRemoteFile(ep, tmpfile);
+                ifileio[i] = (ifile[i])->open(IFOread);
+            }
+            catch (...)
+            {
+                fprintf(stderr,"Exception!\n\n");
+                exit(1);
+            }
+            fprintf(stderr, "created %d <%s>\n", i, tmpfile.str());
+        }
+
+        Sleep(50000);
+
+        for (int i=0; i<40000; i++)
+        {
+            if (ifileio[i])
+            {
+                ifileio[i]->close();
+                ifileio[i]->Release();
+            }
+            if (ifile[i])
+            {
+                ifile[i]->remove();
+                ifile[i]->Release();
+            }
+            fprintf(stderr, "closed and removed %d\n", i);
+        }
+
+        // testIO(nr10pct, server);
     }
 };
 

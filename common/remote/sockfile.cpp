@@ -20,6 +20,7 @@
 
 #include "platform.h"
 #include "limits.h"
+#include <sys/resource.h>
 
 #include "jlib.hpp"
 #include "jio.hpp"
@@ -5873,6 +5874,12 @@ public:
                 acceptSSLSocket.setown(ISocket::create_ip(sslep.port,ips.str()));
             }
         }
+
+        struct rlimit limit;
+        if (getrlimit(RLIMIT_NOFILE, &limit) != 0)
+            PROGLOG("getrlimit(RLIMIT_NOFILE) failed, %d", errno);
+        else
+            PROGLOG("getrlimit(RLIMIT_NOFILE) %lu %lu", limit.rlim_cur, limit.rlim_max);
 
         run(_connectMethod, acceptSocket.getClear(), acceptSSLSocket.getClear());
     }

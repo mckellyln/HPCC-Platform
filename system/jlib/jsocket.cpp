@@ -530,6 +530,7 @@ static win_socket_library ws32_lib;
 #define JSE_TIMEDOUT WSAETIMEDOUT
 #define JSE_CONNREFUSED WSAECONNREFUSED
 #define JSE_BADF WSAEBADF
+#define JSE_ADDRNOTAVAIL WSAADDRNOTAVAIL
 
 #define JSE_INTR WSAEINTR
 
@@ -649,6 +650,7 @@ int inet_aton (const char *name, struct in_addr *addr)
 #define JSE_TIMEDOUT ETIMEDOUT
 #define JSE_CONNREFUSED ECONNREFUSED
 #define JSE_BADF EBADF
+#define JSE_ADDRNOTAVAIL EADDRNOTAVAIL
 
 
 #define _inet_ntop inet_ntop
@@ -859,19 +861,27 @@ int CSocket::pre_connect (bool block)
     STATS.activesockets++;
     int err = 0;
     set_nonblock(!block);
+    fprintf(stderr, "just before connect, block = %d\n", block);
     int rc = ::connect(sock, &u.sa, ul);
+    fprintf(stderr, "rc = %d\n", rc);
     if (rc==SOCKET_ERROR) {
         err = ERRNO();
+        fprintf(stderr, "err = %d\n", err);
         if ((err != JSE_INPROGRESS)&&(err != JSE_WOULDBLOCK)&&(err != JSE_TIMEDOUT)&&(err!=JSE_CONNREFUSED)) {   // handled by caller
-            if (err != JSE_NETUNREACH) {
+            if ( (err != JSE_NETUNREACH) && (err != JSE_ADDRNOTAVAIL) ) {
                 pre_conn_unreach_cnt.store(0);
                 LOGERR2(err,1,"pre_connect");
             } else {
                 int ecnt = pre_conn_unreach_cnt.load();
+                fprintf(stderr, "enct = %d\n", ecnt);
                 if (ecnt <= PRE_CONN_UNREACH_ELIM) {
                     pre_conn_unreach_cnt.fetch_add(1);
-                    LOGERR2(err,1,"pre_connect network unreachable");
+                    if (err == JSE_NETUNREACH)
+                        LOGERR2(err,1,"pre_connect network unreachable");
+                    else
+                        LOGERR2(err,1,"pre_connect network unavailable (out of ports?)");
                 }
+                Sleep(100);
             }
         } else
             pre_conn_unreach_cnt.store(0);
