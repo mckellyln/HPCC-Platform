@@ -1497,7 +1497,7 @@ public:
                     // assumes packet header will arrive in one go
                     if (sizeavail<sizeof(hdr)) {
 #ifdef _FULLTRACE
-                        LOG(MCdebugInfo(100), unknownJob, "Selected stalled on header %d %d",sizeavail,sizeavail-sizeof(hdr));
+                        LOG(MCdebugInfo(100), unknownJob, "Selected stalled on header %d %d",sizeavail,sizeof(hdr)-sizeavail);
 #endif
                         size32_t szread;
                         sock->read(&hdr,sizeof(hdr),sizeof(hdr),szread,60); // I don't *really* want to block here but not much else can do
@@ -1526,14 +1526,16 @@ public:
                     hdr.setMessageFields(*activemsg);
                 }
                 
-                size32_t toread = sizeavail;
-                if (toread>remaining)
-                    toread = remaining;
+                size32_t toread = remaining;
                 if (toread) {
-                    sock->read(activeptr,toread);
-                    remaining -= toread;
-                    sizeavail -= toread;
-                    activeptr += toread;
+                    size32_t rd;
+                    sock->read(activeptr,0,toread,rd,WAIT_FOREVER);
+                    remaining -= rd;
+                    activeptr += rd;
+                    if (sizeavail<=rd)
+                        sizeavail = 0;
+                    else
+                        sizeavail -= rd;
                 }
                 if (remaining==0) { // we have the packet so process
 
@@ -1567,8 +1569,11 @@ public:
                         }
                     } while (activemsg);
                 }
-                if (!sizeavail)
-                    sizeavail = sock->avail_read();
+                else
+                {
+                    if (!sizeavail)
+                        sizeavail = sock->avail_read();
+                }
             } while (sizeavail);
             return false; // ok
         }

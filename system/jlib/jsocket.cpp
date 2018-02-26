@@ -825,7 +825,13 @@ size32_t CSocket::avail_read()
     int avail;
     if (ioctl(sock, FIONREAD, &avail)==0) 
 #endif
+    {
+#if 1
+        if (avail > 1)
+            avail = 1;
+#endif
         return (size32_t)avail;
+    }
     int err = ERRNO();
     LOGERR2(err,1,"avail_read");
     return 0;

@@ -281,7 +281,7 @@ bool enableDafsAuthentication(bool on)
 #ifdef _DEBUG
 static byte traceFlags=0x30;
 #else
-static byte traceFlags=0x20;
+static byte traceFlags=0x2f;
 #endif
 
 #define TF_TRACE (traceFlags&1)
@@ -3820,8 +3820,8 @@ class CRemoteFileServer : implements IRemoteFileServer, public CInterface
                     {
                         EXCLOG(e,"notifySelected(2)");
                         e->Release();
-                        left = 0;
                         // if too big then corrupted packet so read avail to try and consume
+                        // TODO: need a non-blocking read here to flush bogus msg ...
                         char fbuf[1024];
                         while (avail)
                         {
@@ -3843,7 +3843,7 @@ class CRemoteFileServer : implements IRemoteFileServer, public CInterface
                     }
                 }
             }
-            size32_t toread = left>avail?avail:left;
+            size32_t toread = left?left:avail;
             if (toread)
             {
                 try
