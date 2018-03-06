@@ -8203,6 +8203,8 @@ bool CHThorDiskReadBaseActivity::openNext()
     saveOpenExc.clear();
     actualFilter.clear();
 
+    bool forceRemoteFiles = queryEnvironmentConf().getPropBool("forceRemoteFiles");
+
     if (dfsParts||ldFile)
     {
         // open next part of a multipart, if there is one
@@ -8255,7 +8257,7 @@ bool CHThorDiskReadBaseActivity::openNext()
                 try
                 {
                     inputfile.setown(createIFile(rfilename));
-                    if (rfilename.isLocal())
+                    if (rfilename.isLocal() && !forceRemoteFiles)
                     {
                         if(compressed)
                         {
@@ -8408,7 +8410,7 @@ bool CHThorDiskReadBaseActivity::checkOpenedFile(char const * filename, char con
     saveOpenExc.clear();
     if (filesize)
     {
-        if (!compressed && fixedDiskRecordSize && (filesize % fixedDiskRecordSize) != 0)
+        if (!compressed && fixedDiskRecordSize && (filesize != (offset_t)-1) && (filesize % fixedDiskRecordSize) != 0)
         {
             StringBuffer s;
             s.append("File ").append(filename).append(" size is ").append(filesize).append(" which is not a multiple of ").append(fixedDiskRecordSize);
