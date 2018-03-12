@@ -174,6 +174,7 @@ public:
         case JSOCKERR_handle_too_large:          return str.append("handle too large");
         case JSOCKERR_bad_netaddr:               return str.append("bad net addr");
         case JSOCKERR_ipv6_not_implemented:      return str.append("IPv6 not implemented");
+        case JSOCKERR_network_unreach:           return str.append("Network not available");
         // OS errors
 #ifdef _WIN32
         case WSAEINTR:              return str.append("WSAEINTR(10004) - Interrupted system call.");
@@ -530,6 +531,11 @@ static win_socket_library ws32_lib;
 #define JSE_TIMEDOUT WSAETIMEDOUT
 #define JSE_CONNREFUSED WSAECONNREFUSED
 #define JSE_BADF WSAEBADF
+#define JSE_ADDRNOTAVAIL WSAADDRNOTAVAIL
+#define JSE_NETDOWN WSANETDOWN
+#define JSE_NETRESET WSANETRESET
+#define JSE_HOSTDOWN WSAHOSTDOWN
+#define JSE_HOSTUNREACH WSAHOSTUNREACH
 
 #define JSE_INTR WSAEINTR
 
@@ -649,6 +655,11 @@ int inet_aton (const char *name, struct in_addr *addr)
 #define JSE_TIMEDOUT ETIMEDOUT
 #define JSE_CONNREFUSED ECONNREFUSED
 #define JSE_BADF EBADF
+#define JSE_ADDRNOTAVAIL EADDRNOTAVAIL
+#define JSE_NETDOWN ENETDOWN
+#define JSE_NETRESET ENETRESET
+#define JSE_HOSTDOWN EHOSTDOWN
+#define JSE_HOSTUNREACH EHOSTUNREACH
 
 
 #define _inet_ntop inet_ntop
@@ -863,15 +874,19 @@ int CSocket::pre_connect (bool block)
     if (rc==SOCKET_ERROR) {
         err = ERRNO();
         if ((err != JSE_INPROGRESS)&&(err != JSE_WOULDBLOCK)&&(err != JSE_TIMEDOUT)&&(err!=JSE_CONNREFUSED)) {   // handled by caller
-            if (err != JSE_NETUNREACH) {
-                pre_conn_unreach_cnt.store(0);
-                LOGERR2(err,1,"pre_connect");
-            } else {
+            if (err == JSE_ADDRNOTAVAIL || err == JSE_NETDOWN || err == JSE_NETRESET ||
+                err == JSE_NETUNREACH || err == JSE_HOSTDOWN || err == JSE_HOSTUNREACH)
+            {
                 int ecnt = pre_conn_unreach_cnt.load();
                 if (ecnt <= PRE_CONN_UNREACH_ELIM) {
                     pre_conn_unreach_cnt.fetch_add(1);
                     LOGERR2(err,1,"pre_connect network unreachable");
                 }
+            }
+            else
+            {
+                pre_conn_unreach_cnt.store(0);
+                LOGERR2(err,1,"pre_connect");
             }
         } else
             pre_conn_unreach_cnt.store(0);
@@ -1221,8 +1236,15 @@ ISocket*  ISocket::connect( const SocketEndpoint &ep )
 inline void refused_sleep(CTimeMon &tm, unsigned &refuseddelay)
 {
     unsigned remaining;
+
+    DBGLOG("mck - refused_sleep(refuseddealy = %u", refuseddelay);
+
     if (!tm.timedout(&remaining)) {
+
+        DBGLOG("mck - refused_sleep not timedout, refuseddelay = %u  remaining = %u", refuseddelay, remaining);
+
         if (refuseddelay<remaining/4) {
+            DBGLOG("mck - refused_sleep() about to Sleep(%u)", refuseddelay);
             Sleep(refuseddelay);
             if (refuseddelay<CONNECT_TIMEOUT_REFUSED_WAIT/2)
                 refuseddelay *=2;
@@ -1230,7 +1252,10 @@ inline void refused_sleep(CTimeMon &tm, unsigned &refuseddelay)
                 refuseddelay = CONNECT_TIMEOUT_REFUSED_WAIT;
         }
         else 
+        {
+            DBGLOG("mck - refused_sleep() else, about to Sleep(%u)", refuseddelay/4);
             Sleep(remaining/4); // towards end of timeout approach gradually
+        }
     }
 }
 
@@ -1242,6 +1267,7 @@ bool CSocket::connect_timeout( unsigned timeout, bool noexception)
     unsigned remaining;
     unsigned refuseddelay = 1;
     int err;
+    int retryNet = 10;
     while (!tm.timedout(&remaining))
     {
         err = pre_connect(false);
@@ -1282,6 +1308,20 @@ bool CSocket::connect_timeout( unsigned timeout, bool noexception)
                 LOGERR2(err,2,"::select/poll");
             }
         }
+        else if (err == JSE_ADDRNOTAVAIL || err == JSE_NETDOWN || err == JSE_NETRESET ||
+                 err == JSE_NETUNREACH || err == JSE_HOSTDOWN || err == JSE_HOSTUNREACH)
+        {
+            // mck - try a few times but then fail / throw
+            retryNet--;
+            if (retryNet > 0)
+                refused_sleep(tm,refuseddelay);
+            else
+            {
+                LOGERR2(err,2,"pre_connect: network not available");
+                errclose();
+                break;
+            }
+        }
         if (err==0)
         {
             err = post_connect();
@@ -1304,10 +1344,18 @@ bool CSocket::connect_timeout( unsigned timeout, bool noexception)
 #ifdef SOCKTRACE
     PROGLOG("connect_timeout: failed %d",err);
 #endif
+
+    DBGLOG("mck - connect_timeout: failed %d",err);
+
     STATS.failedconnects++;
     STATS.failedconnecttime+=usTick()-startt;
     if (!noexception)
+    {
+        DBGLOG("mck - connect_timeout() about to throw");
         THROWJSOCKEXCEPTION(JSOCKERR_connection_failed);
+    }
+
+    DBGLOG("mck - connect_timeout() returning false");
     return false;
 }
 
@@ -1333,6 +1381,7 @@ void CSocket::connect_wait(unsigned timems)
     bool exit = false;
     int err;
     unsigned refuseddelay = 1;
+    int retryNet = 10;
     while (!exit) {
 #ifdef CENTRAL_NODE_RANDOM_DELAY
         ForEachItemIn(cn,CentralNodeArray) {
@@ -1355,7 +1404,7 @@ void CSocket::connect_wait(unsigned timems)
             if (++connectingcount>4)
                 blockselect = true;
         }
-        err = pre_connect(blockselect);             
+        err = pre_connect(blockselect); // mck - handle network unreachable
         if (blockselect)
         {
             if (err&&!exit)
@@ -1367,6 +1416,22 @@ void CSocket::connect_wait(unsigned timems)
     #ifndef BLOCK_POLLED_SINGLE_CONNECTS
             unsigned polltime = 1;
     #endif
+
+            if (!blockselect && ((err == JSE_ADDRNOTAVAIL || err == JSE_NETDOWN || err == JSE_NETRESET ||
+                                  err == JSE_NETUNREACH || err == JSE_HOSTDOWN || err == JSE_HOSTUNREACH)))
+            {
+                // mck - try a few times but then fail / throw
+                retryNet--;
+                if (retryNet > 0)
+                    refused_sleep(tm,refuseddelay);
+                else
+                {
+                    LOGERR2(err,2,"pre_connect: network not available");
+                    errclose();
+                    break;
+                }
+            }
+
             while (!blockselect && ((err == JSE_INPROGRESS)||(err == JSE_WOULDBLOCK)))
             {
 

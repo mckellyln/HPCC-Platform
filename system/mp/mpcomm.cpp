@@ -773,6 +773,9 @@ protected: friend class CMPPacketReader;
                 }
                 if (remaining<10000)
                     remaining = 10000; // 10s min granularity for MP
+
+                DBGLOG("mck - connect() remaining = %u", remaining);
+
                 newsock = ISocket::connect_timeout(remoteep,remaining);
                 newsock->set_keep_alive(true);
 #ifdef _FULLTRACE
@@ -935,7 +938,7 @@ protected: friend class CMPPacketReader;
                 }
 
             }
-            catch (IException *e)
+            catch (IException *e) // mck - handle different exceptions here and then pre_connect failures can throw different exceptions
             {
                 if (tm.timedout(&remaining)) {
 #ifdef _FULLTRACE
@@ -947,6 +950,9 @@ protected: friend class CMPPacketReader;
 #ifdef _TRACE
                 EXCLOG(e, "MP: Failed to connect");
 #endif
+
+                DBGLOG("mck - connect() retrycount = %u", retrycount);
+
                 e->Release();
                 if ((retrycount--==0)||(tm.timeout==MP_ASYNC_SEND)) {   // don't bother retrying on async send
                     IMP_Exception *e=new CMPException(MPERR_connection_failed,remoteep);

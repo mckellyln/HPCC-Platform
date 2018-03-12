@@ -1894,13 +1894,30 @@ bool registerClientProcess(ICommunicator *comm, IGroup *& retcoven,unsigned time
     unsigned remaining;
     rank_t r;
     while (!tm.timedout(&remaining)) {
+
         if (remaining>t)
             remaining = t;
+
         r = getRandom()%comm->queryGroup().ordinality();
         
         bool ok = false;
         if (remaining>10000) // MP protocol has a minimum time of 10s so if remaining < 10s use a detachable thread
-            ok = comm->verifyConnection(r,remaining);
+        {
+            try
+            {
+                DBGLOG("mck - remaining = %u", remaining);
+                ok = comm->verifyConnection(r,remaining);
+                DBGLOG("mck - ok = %u, remaining = %u", ok, remaining);
+            }
+            catch (IJSOCK_Exception *e)
+            {
+                DBGLOG("mck - catch IJSOCK orig verifyConnection()");
+            }
+            catch (IException *e)
+            {
+                DBGLOG("mck - catch orig verifyConnection()");
+            }
+        }
         else {
             struct cThread: public Thread
             {
@@ -1922,25 +1939,49 @@ bool registerClientProcess(ICommunicator *comm, IGroup *& retcoven,unsigned time
                     try {
                         if (comm->verifyConnection(r,remaining))
                             ok = true;
+
+                        DBGLOG("mck - after thread verifyConnection(), ok = %u", ok);
+                    }
+                    catch (IJSOCK_Exception *e)
+                    {
+                        DBGLOG("mck - catch IJSOCK thread verifyConnection()");
+                        exc.setown(e);
                     }
                     catch (IException *e)
                     {
+                        DBGLOG("mck - catch thread verifyConnection()");
                         exc.setown(e);
                     }
                     sem.signal();
                     return 0;
                 }
             } *t = new cThread(comm,r,remaining);
+
             t->start();
+
+            DBGLOG("mck - after t->start(), remaining = %u", remaining);
+
             t->sem.wait(remaining);
             ok = t->ok;
+
+            DBGLOG("mck - after t->sem.wait(), ok = %u", ok);
+
             if (t->exc.get()) {
+
+                DBGLOG("mck - exc.get() has something");
+
                 IException *e = t->exc.getClear();
                 t->Release();
                 throw e;
             }
+
+            DBGLOG("mck - exc.get() is empty");
+
             t->Release();
-        }   
+        }
+
+        DBGLOG("mck - after, ok = %u", ok);
+
         if (ok) {
             CMessageBuffer mb;
             mb.append((int)MSR_REGISTER_PROCESS_SESSION);
@@ -1977,7 +2018,7 @@ bool registerClientProcess(ICommunicator *comm, IGroup *& retcoven,unsigned time
         }
         else
             --nextLog;
-        Sleep(REG_SLEEP);
+        Sleep(REG_SLEEP); // mck
     }
     return false;
 }
