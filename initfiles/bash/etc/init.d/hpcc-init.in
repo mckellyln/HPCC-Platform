@@ -258,6 +258,8 @@ while true ; do
                 component=$comp
             fi
             shift 2 ;;
+        -t|--trace) TRACE="1"
+                    shift ;;
         -d|--debug) DEBUG="DEBUG"
                     shift ;;
         -f|--force) FORCE="FORCE"
@@ -278,11 +280,15 @@ if [ -z $arg ] || [ $# -ne 1 ]; then
     print_usage
 fi
 
-os=$(uname -s)
-if [[ -n "$HPCC_DEVELOPER" && "$os" = "Linux" && -f "${envfile}" ]] ; then
+thisos=$(uname -s)
+if [[ "$thisos" = "Linux" && -f "${envfile}" && -n "${component}" && \
+    "${TRACE}" = "0" && -z "$HPCC_NO_FLOCK" ]] ; then
     cfggenpre=(flock ${envfile})
-else
-    log "Debug log written to $LOG_DIR/hpcc-init.debug"
+fi
+
+# trace output of shell cmds to .debug file only if -t specified on cmdline
+if [[ "${TRACE}" != "0" ]] ; then
+    log "Debug trace log written to $LOG_DIR/hpcc-init.debug"
     [ -e $LOG_DIR/hpcc-init.debug ] && rm -rf ${LOG_DIR}/hpcc-init.debug
     touch ${LOG_DIR}/hpcc-init.debug
     chown ${user}:${group} ${LOG_DIR}/hpcc-init.debug
@@ -291,7 +297,7 @@ else
     set -x
 fi
 
-if [ -z ${component} ]; then
+if [ -z "${component}" ]; then
     for (( i=0; i<=${compListLen}; i++ ));do
         component="$component ${compList[$i]}"
     done
