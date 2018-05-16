@@ -1693,7 +1693,7 @@ bool CMPChannel::attachSocket(ISocket *newsock,const SocketEndpoint &_remoteep,c
         try {
             LOG(MCdebugInfo(100), unknownJob, "Message Passing - removing stale socket to %s",ep2.str());
             CriticalUnblock unblock(connectsect);
-            closeSocket(true, true);
+            closeSocket(false, true);
 #ifdef REFUSE_STALE_CONNECTION
             if (!ismaster)
                 return false;
