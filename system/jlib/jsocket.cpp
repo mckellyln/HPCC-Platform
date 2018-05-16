@@ -103,6 +103,10 @@
 //#define EPOLLTRACE
 #endif
 
+// mck
+#define SOCKTRACE
+// mck
+
 #ifdef _TESTING
 #define _TRACE
 #endif
@@ -473,6 +477,7 @@ private:
     #ifdef _WIN32
             return ::closesocket(s);
     #else
+            ::shutdown(s, SHUT_WR); // mck
             return ::close(s);
     #endif
         }
@@ -2453,7 +2458,11 @@ void CSocket::shutdown(unsigned mode)
                 LOGERR2(err,9,"shutdown");
                 err = JSOCKERR_broken_pipe;
             }
+// mck
+#ifndef _TRACELINKCLOSED
             THROWJSOCKEXCEPTION(err);
+#endif
+// mck
         }
     }
 }
