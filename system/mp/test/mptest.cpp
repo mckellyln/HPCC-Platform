@@ -9,17 +9,16 @@
 #include <jcrc.hpp>
 #include <mpbase.hpp>
 #include <mpcomm.hpp>
-
+#include <mpicomm.hpp>
+#include <string>
 #include <algorithm>
 #include <queue>
-#include <string>
+#include <map>
+#include "mplog.hpp"
 
 using namespace std;
 
-#define MPPORT 8888
-
-//#define GPF
-
+// Testnames
 #define TEST_AlltoAll "AlltoAll"
 #define TEST_STREAM "Stream"
 #define TEST_MULTI "Multi"
@@ -33,10 +32,14 @@ using namespace std;
 #define TEST_MULTI_MT "MTMultiSendRecv"
 #define TEST_NXN "NxN"
 
-// #define aWhile 100000
-#define aWhile 10
-
-
+// Test parameters
+#define PARAM_BUFF_SIZE "buffsize"
+#define PARAM_NUM_ITERS "numiters"
+#define PARAM_MAX_RANKS "max_ranks"
+#define PARAM_INPUT_RANK "inputRank"
+#define PARAM_NUM_STREAMS "numStreams"
+#define PARAM_PERSTREAM_MB_SIZE "perStreamMBSize"
+#define PARAM_ASYNC "async"
 
 class CSectionTimer
 {
@@ -54,12 +57,10 @@ class CSectionTimer
         CriticalBlock block(findsect);
         unsigned tid = (unsigned)(memsize_t)GetCurrentThreadId();
         unsigned i;
-        for (i=0;i<999;i++)
-        {
+        for (i=0;i<999;i++) {
             if (tids[i]==tid)
                 break;
-            if (tids[i]==0)
-            {
+            if (tids[i]==0) {
                 tids[i] = tid;
                 break;
             }
@@ -79,6 +80,8 @@ public:
     {
         free((void *)name);
     }
+
+
     void begin()
     {
         hrt[idx()].reset();
@@ -95,7 +98,7 @@ public:
     void print()
     {
         if (count)
-            PROGLOG("TIME: %s(%u): max=%.6f, avg=%.6f, tot=%.6f",name,count,max,(double)total/count,total);
+            PrintLog("TIME: %s(%u): max=%.6f, avg=%.6f, tot=%.6f",name,count,max,(double)total/count,total);
     }
 };
 
@@ -135,38 +138,36 @@ static CSectionTimer STrecv("recv");
 
 void StreamTest(IGroup *group,ICommunicator *comm)
 {
+
     CMessageBuffer mb;
-    for (unsigned i=0;i<NITER;i++)
-    {
-        if (group->rank() == 1)
-        {
+    for (unsigned i=0;i<NITER;i++) {
+        if (group->rank() == 1) {
             mb.clear();
             StringBuffer header;
             header.append("Test Block #").append(i);
             mb.append(header.str()).reserve(BLOCKSIZE-mb.length());
-            PROGLOG("MPTEST: StreamTest sending '%s' length %u",header.str(),mb.length());
+            PrintLog("MPTEST: StreamTest sending '%s' length %u",header.str(),mb.length());
             {
                 TimedBlock block(STsend);
                 comm->send(mb,0,MPTAG_TEST,MP_ASYNC_SEND);
             }
-            PROGLOG("MPTEST: StreamTest sent");
+            PrintLog("MPTEST: StreamTest sent");
             //Sleep(WRITEDELAY);
         }
-        else if (group->rank() == 0)
-        {
+        else if (group->rank() == 0) {
             rank_t r;
             comm->recv(mb,RANK_ALL,MPTAG_TEST,&r);
             StringAttr str;
-            PROGLOG("MPTEST: StreamTest receiving");
+            PrintLog("MPTEST: StreamTest receiving");
             {
                 TimedBlock block(STrecv);
                 mb.read(str);
             }
-            PROGLOG("MPTEST: StreamTest received(%u) '%s' length %u",r,str.get(),mb.length());
+            PrintLog("MPTEST: StreamTest received(%u) '%s' length %u",r,str.get(),mb.length());
         }
         else
         {
-            PROGLOG("MPTEST: StreamTest skipping extra rank %u", group->rank());
+            PrintLog("MPTEST: StreamTest skipping extra rank %u", group->rank());
             break;
         }
     }
@@ -180,20 +181,18 @@ void StreamTest(IGroup *group,ICommunicator *comm)
 
 void Test1(IGroup *group,ICommunicator *comm)
 { 
-    PROGLOG("test1");
+    PrintLog("test1");
     CMessageBuffer mb;
-    if (group->rank()==0)
-    {
+    if (group->rank()==0) {
         mb.append("Hello - Test1");
         comm->send(mb,1,MPTAG_TEST);
     }
-    else if (group->rank()==1)
-    {
+    else if (group->rank()==1) {
         rank_t r;
         comm->recv(mb,0,MPTAG_TEST,&r);
         StringAttr str;
         mb.read(str);
-        PROGLOG("(1) Received '%s' from rank %u",str.get(),r);
+        PrintLog("(1) Received '%s' from rank %u",str.get(),r);
     }
     comm->barrier();
 }
@@ -201,17 +200,15 @@ void Test1(IGroup *group,ICommunicator *comm)
 
 void Test2(IGroup *group,ICommunicator *comm)
 {
-    PROGLOG("test2");
+    PrintLog("test2");
     CMessageBuffer mb;
-    if (group->rank()==0)
-    {
+    if (group->rank()==0) {
         mb.append("Hello - Test2");
         comm->send(mb,RANK_ALL,MPTAG_TEST);
     }
-    else if (group->rank()==1)
-    {
+    else if (group->rank()==1) {
 #ifdef GPF
-        PROGLOG("GPFING");
+        PrintLog("GPFING");
         Sleep(aWhile);
         byte *p = NULL; *p = 1;
 #endif
@@ -219,7 +216,7 @@ void Test2(IGroup *group,ICommunicator *comm)
         comm->recv(mb,RANK_ALL,MPTAG_TEST,&r);
         StringAttr str;
         mb.read(str);
-        PROGLOG("(2) Received '%s' from rank %u",str.get(),r);
+        PrintLog("(2) Received '%s' from rank %u",str.get(),r);
     }
     comm->barrier();
 }
@@ -227,20 +224,18 @@ void Test2(IGroup *group,ICommunicator *comm)
 
 void Test3(IGroup *group,ICommunicator *comm)
 {
-    PROGLOG("test3");
+    PrintLog("test3");
     CMessageBuffer mb;
-    if (group->rank()==0)
-{
+    if (group->rank()==0) {
         mb.append("Hello - Test3");
         comm->send(mb,1,MPTAG_TEST);
     }
-    else if (group->rank()==1)
-    {
+    else if (group->rank()==1) {
         rank_t r;
         comm->recv(mb,RANK_ALL,MPTAG_TEST,&r);
         StringAttr str;
         mb.read(str);
-        PROGLOG("(3) Received '%s' from rank %u",str.get(),r);
+        PrintLog("(3) Received '%s' from rank %u",str.get(),r);
     }
     comm->barrier();
 }
@@ -248,10 +243,9 @@ void Test3(IGroup *group,ICommunicator *comm)
 
 void Test4(IGroup *group,ICommunicator *comm)
 {
-    PROGLOG("test4");
+    PrintLog("test4");
     CMessageBuffer mb;
-    if (group->rank()==0)
-    {
+    if (group->rank()==0) {
         INode *singlenode=&group->queryNode(1);
         IGroup *singlegroup = createIGroup(1,&singlenode);
         ICommunicator * singlecomm = createCommunicator(singlegroup);
@@ -260,13 +254,12 @@ void Test4(IGroup *group,ICommunicator *comm)
         singlecomm->Release();
         singlegroup->Release();
     }
-    else if (group->rank()==1)
-    {
+    else if (group->rank()==1) {
         rank_t r;
         comm->recv(mb,RANK_ALL,MPTAG_TEST,&r);
         StringAttr str;
         mb.read(str);
-        PROGLOG("(4) Received '%s' from rank %u",str.get(),r);
+        PrintLog("(4) Received '%s' from rank %u",str.get(),r);
     }
     comm->barrier();
 }
@@ -274,7 +267,7 @@ void Test4(IGroup *group,ICommunicator *comm)
 
 void Test5(IGroup *group,ICommunicator *comm)
 {
-    PROGLOG("test5");
+    PrintLog("test5");
     rank_t rank = group->rank();
     INode *singlenode=&group->queryNode(1);
     IGroup *singlegroup = createIGroup(1,&singlenode);
@@ -284,13 +277,12 @@ void Test5(IGroup *group,ICommunicator *comm)
         mb.append("Hello - Test5");
         singlecomm->send(mb,0,MPTAG_TEST);
     }
-    else if (rank==1)
-    {
+    else if (rank==1) {
         rank_t r;
         singlecomm->recv(mb,RANK_ALL,MPTAG_TEST,&r);
         StringAttr str;
         mb.read(str);
-        PROGLOG("(5) Received '%s' from rank %u (unknown)",str.get(),r);
+        PrintLog("(5) Received '%s' from rank %u (unknown)",str.get(),r);
     }
     comm->barrier();
     singlecomm->Release();
@@ -300,25 +292,23 @@ void Test5(IGroup *group,ICommunicator *comm)
 
 void Test6(IGroup *group,ICommunicator *comm)
 {
-    PROGLOG("test6");
+    PrintLog("test6");
     //DebugBreak();
     CMessageBuffer mb;
     StringAttr str;
-    if (group->rank()==1)
-    {
+    if (group->rank()==1) {
         mb.append("Test");
         bool cancelled = comm->sendRecv(mb,0,MPTAG_TEST);
         StringAttr str;
         mb.read(str);
         StringBuffer url;
-        PROGLOG("(6) Received '%s' from %s",str.get(),mb.getSender().getUrlStr(url).str());
+        PrintLog("(6) Received '%s' from %s",str.get(),mb.getSender().getUrlStr(url).str());
     }
-    else if (group->rank()==0)
-    {
+    else if (group->rank()==0) {
         rank_t r;
         comm->recv(mb,RANK_ALL,MPTAG_TEST,&r);
         mb.read(str);
-        PROGLOG("(6) - str = <%s>", str.get());
+        PrintLog("(6) - str = <%s>", str.get());
         assertex(strcmp(str.get(),"Test")==0);
         mb.clear();
         mb.append("Hello - Test6");
@@ -333,21 +323,19 @@ void Test6(IGroup *group,ICommunicator *comm)
 
 void Test7(IGroup *group,ICommunicator *comm)
 { 
-    PROGLOG("test7");
+    PrintLog("test7");
     CMessageBuffer mb;
-    if (group->rank()==0)
-    {
+    if (group->rank()==0) {
         mb.append("Hello - Test7");
         mb.reserve(150*1024);
         comm->send(mb,1,MPTAG_TEST);
     }
-    else if (group->rank()==1)
-    {
+    else if (group->rank()==1) {
         rank_t r;
         comm->recv(mb,(mptag_t) TAG_ALL,MPTAG_TEST,&r);
         StringAttr str;
         mb.read(str);
-        PROGLOG("Received '%s' from rank %u",str.get(),r);
+        PrintLog("Received '%s' from rank %u",str.get(),r);
     }
     comm->barrier();
 }
@@ -360,23 +348,19 @@ struct CRandomBuffer
     size32_t size;
     char buffer[MAXBUFFERSIZE];
     unsigned crc;
-    void fill()
-    {
+    void fill() {
         size = getRandom()%MAXBUFFERSIZE;
         // size = 100000;
-        if (size)
-        {
+        if (size) {
             char c = (char)getRandom();
 #if 0
-            for (unsigned i=0;i<size;i++)
-            {
+            for (unsigned i=0;i<size;i++) {
                 buffer[i] = c;
                 c += (c*16);
                 c += 113;
             }
 #endif
-            for (unsigned i=0;i<size;i++)
-            {
+            for (unsigned i=0;i<size;i++) {
                 buffer[i] = 'a' + i%26;
             }
         }
@@ -385,18 +369,15 @@ struct CRandomBuffer
     bool check() 
     {
         int errs = 50;
-        if (crc!=crc32(buffer,size,0))
-        {
-            PROGLOG("**** Error: CRC check failed");
-            PROGLOG("size = %u",size);
+        if (crc!=crc32(buffer,size,0)) {
+            PrintLog("**** Error: CRC check failed");
+            PrintLog("size = %u",size);
             char c = buffer[0];
-            for (unsigned i=1;i<size;i++)
-            {
+            for (unsigned i=1;i<size;i++) {
                 c += (c*16);
                 c += 113;
-                if (buffer[i] != c)
-                {
-                    PROGLOG("Failed at %u, expected %02x found %02x %02x %02x %02x %02x %02x %02x %02x",i,(int)(byte)c,(int)(byte)buffer[i],(int)(byte)buffer[i+1],(int)(byte)buffer[i+2],(int)(byte)buffer[i+3],(int)(byte)buffer[i+4],(int)(byte)buffer[i+5],(int)(byte)buffer[i+6],(int)(byte)buffer[i+7]);
+                if (buffer[i] != c) {
+                    PrintLog("Failed at %u, expected %02x found %02x %02x %02x %02x %02x %02x %02x %02x",i,(int)(byte)c,(int)(byte)buffer[i],(int)(byte)buffer[i+1],(int)(byte)buffer[i+2],(int)(byte)buffer[i+3],(int)(byte)buffer[i+4],(int)(byte)buffer[i+5],(int)(byte)buffer[i+6],(int)(byte)buffer[i+7]);
                     if (errs--==0)
                         break;
                 }
@@ -443,25 +424,23 @@ void MultiTest(ICommunicator *_comm)
             unsigned n=(comm->queryGroup().ordinality()-1)*N;
             CMessageBuffer mb;
             CRandomBuffer *buff = new CRandomBuffer();
-            PROGLOG("MPTEST: MultiTest server started, myrank = %u", comm->queryGroup().rank());
-            try
-            {
-                while(n--)
-                {
+            PrintLog("MPTEST: MultiTest server started, myrank = %u", comm->queryGroup().rank());
+            try {
+                while(n--) {
                     mb.clear();
                     rank_t rr;
                     if (!comm->recv(mb,RANK_ALL,MPTAG_TEST,&rr)) 
                         break;
-                    PROGLOG("MPTEST: MultiTest server Received from %u, len = %u",rr, mb.length());
+                    PrintLog("MPTEST: MultiTest server Received from %u, len = %u",rr, mb.length());
                     StringBuffer str;
                     comm->queryGroup().queryNode(rr).endpoint().getUrlStr(str);
-                    // PROGLOG("MPTEST: MultiTest server Received from %s",str.str());
+                    // PrintLog("MPTEST: MultiTest server Received from %s",str.str());
 
                     buff->deserialize(mb);
 
 #ifdef DO_CRC_CHECK
                     if (!buff->check())
-                        PROGLOG("MPTEST: MultiTest server Received from %s",str.str());
+                        PrintLog("MPTEST: MultiTest server Received from %s",str.str());
 #endif
 
                     mb.clear().append(buff->crc);
@@ -472,15 +451,13 @@ void MultiTest(ICommunicator *_comm)
                     comm->reply(mb);
                 }
             }
-            catch (IException *e)
-            {
+            catch (IException *e) {
                 pexception("Server Exception",e);
-                e->Release();
             }
 
             comm->barrier();
 
-            PROGLOG("MPTEST: MultiTest server stopped");
+            PrintLog("MPTEST: MultiTest server stopped");
             delete buff;
             return 0;
         }
@@ -507,8 +484,7 @@ void MultiTest(ICommunicator *_comm)
                 *(t++) = i;
 
     unsigned k=n;
-    while (k>1)
-    {
+    while (k>1) {
         i = getRandom()%k;  // NB n is correct here 
         k--;
         unsigned t = targets[i];
@@ -516,39 +492,36 @@ void MultiTest(ICommunicator *_comm)
         targets[k] = t;
     }
 
-    PROGLOG("MPTEST: Multitest client started, myrank = %u", comm->queryGroup().rank());
+    PrintLog("MPTEST: Multitest client started, myrank = %u", comm->queryGroup().rank());
 
     try {
-        while (n--)
-        {
+        while (n--) {
             buff->fill();
             buff->serialize(mb.clear());
 
 #if 0
             StringBuffer str;
             comm->queryGroup().queryNode(targets[n]).endpoint().getUrlStr(str);
-            PROGLOG("MPTEST: Multitest client Sending to %s, length=%u",str.str(), mb.length());
+            PrintLog("MPTEST: Multitest client Sending to %s, length=%u",str.str(), mb.length());
 #endif
 
-            PROGLOG("MPTEST: Multitest client Sending to %u, length=%u", targets[n], mb.length());
+            PrintLog("MPTEST: Multitest client Sending to %u, length=%u", targets[n], mb.length());
 
             if (!comm->sendRecv(mb,targets[n],MPTAG_TEST)) 
                 break;
 
             // Sleep((n+1)*2000);
-            // PROGLOG("MPTEST: Multitest client Sent to %s",str.str());
+            // PrintLog("MPTEST: Multitest client Sent to %s",str.str());
             unsigned crc;
             mb.read(crc);
             assertex(crc==buff->crc);
         }
     }
-    catch (IException *e)
-    {
+    catch (IException *e) {
         pexception("Client Exception",e);
-        e->Release();
     }
 
-    PROGLOG("MPTEST: MultiTest client finished");
+    PrintLog("MPTEST: MultiTest client finished");
 
     server.join();
 
@@ -573,7 +546,7 @@ void MPRing(IGroup *group, ICommunicator *mpicomm, unsigned iters=0)
     if (pintvl < 1)
         pintvl = 1;
 
-    PROGLOG("MPTEST: MPRing myrank=%u numranks=%u iters=%u", myrank, numranks, iters);
+    PrintLog("MPTEST: MPRing myrank=%u numranks=%u iters=%u", myrank, numranks, iters);
 
     unsigned next = myrank;
     unsigned prev = myrank;
@@ -590,14 +563,14 @@ void MPRing(IGroup *group, ICommunicator *mpicomm, unsigned iters=0)
         smb.clear();
         smb.append(k);
         if ((k%pintvl) == 0)
-            PROGLOG("MPTEST: MPRing %u send to rank %u", myrank, next);
+            PrintLog("MPTEST: MPRing %u send to rank %u", myrank, next);
         bool oksend = mpicomm->send(smb, next, MPTAG_TEST);
         if (!oksend)
             throw MakeStringException(-1, "MPTEST: MPRing %u send() to rank %u failed", myrank, next);
 
         rmb.clear();
         if ((k%pintvl) == 0)
-            PROGLOG("MPTEST: MPRing %u recv from rank %u", myrank, prev);
+            PrintLog("MPTEST: MPRing %u recv from rank %u", myrank, prev);
         bool okrecv = mpicomm->recv(rmb, prev, MPTAG_TEST);
         if (!okrecv)
             throw MakeStringException(-1, "MPTEST: MPRing %u recv() from rank %u failed", myrank, prev);
@@ -606,16 +579,18 @@ void MPRing(IGroup *group, ICommunicator *mpicomm, unsigned iters=0)
         k++;
 
         if ((k%pintvl) == 0)
-            PROGLOG("MPTEST: MPRing %u iteration %u complete", myrank, k);
+            PrintLog("MPTEST: MPRing %u iteration %u complete", myrank, k);
 
         if (k == iters)
             break;
     }
     while (true);
 
-    PROGLOG("MPTEST: MPRing complete");
+    PrintLog("MPTEST: MPRing complete");
 
     mpicomm->barrier();
+
+    return;
 }
 
 #define MSGLEN 1048576
@@ -632,8 +607,10 @@ void MPAlltoAll(IGroup *group, ICommunicator *mpicomm, size32_t buffsize=0, unsi
         buffsize = MSGLEN;
     if (iters == 0)
         iters = 1000;
+    if (iters < 1)
+        iters = 1;
 
-    PROGLOG("MPTEST: MPAlltoAll myrank=%u numranks=%u buffsize=%u iters=%u", myrank, numranks, buffsize, iters);
+    PrintLog("MPTEST: MPAlltoAll myrank=%u numranks=%u buffsize=%u iters=%u", myrank, numranks, buffsize, iters);
 
     // ---------
 
@@ -651,7 +628,7 @@ void MPAlltoAll(IGroup *group, ICommunicator *mpicomm, size32_t buffsize=0, unsi
 
         int run()
         {
-            PROGLOG("MPTEST: MPAlltoAll sender started, myrank = %u", myrank);
+            PrintLog("MPTEST: MPAlltoAll sender started, myrank = %u", myrank);
 
             int pintvl = iters/10;
             if (pintvl < 1)
@@ -666,11 +643,11 @@ void MPAlltoAll(IGroup *group, ICommunicator *mpicomm, size32_t buffsize=0, unsi
                 if (!oksend)
                     throw MakeStringException(-1, "MPTEST: MPAlltoAll %u send() failed", myrank);
                 if ((k%pintvl) == 0)
-                    PROGLOG("MPTEST: MPAlltoAll sender %u iteration %u complete", myrank, k);
+                    PrintLog("MPTEST: MPAlltoAll sender %u iteration %u complete", myrank, k);
             }
 
             mpicomm->barrier();
-            PROGLOG("MPTEST: MPAlltoAll sender stopped");
+            PrintLog("MPTEST: MPAlltoAll sender stopped");
             return 0;
         }
     } sender(mpicomm, numranks, myrank, buffsize, iters);
@@ -681,7 +658,7 @@ void MPAlltoAll(IGroup *group, ICommunicator *mpicomm, size32_t buffsize=0, unsi
 
     // ---------
 
-    PROGLOG("MPTEST: MPAlltoAll receiver started, myrank = %u", myrank);
+    PrintLog("MPTEST: MPAlltoAll receiver started, myrank = %u", myrank);
 
     int pintvl = iters/10;
     if (pintvl < 1)
@@ -698,13 +675,13 @@ void MPAlltoAll(IGroup *group, ICommunicator *mpicomm, size32_t buffsize=0, unsi
             if (!okrecv)
                 throw MakeStringException(-1, "MPTEST: MPAlltoAll %u recv() failed", myrank);
             if (i==1 && (k%pintvl) == 0)
-                PROGLOG("MPTEST: MPAlltoAll receiver rank %u iteration %u complete", myrank, k);
+                PrintLog("MPTEST: MPAlltoAll receiver rank %u iteration %u complete", myrank, k);
         }
     }
 
     mpicomm->barrier();
 
-    PROGLOG("MPTEST: MPAlltoAll receiver finished");
+    PrintLog("MPTEST: MPAlltoAll receiver finished");
 
     // ---------
 
@@ -714,7 +691,7 @@ void MPAlltoAll(IGroup *group, ICommunicator *mpicomm, size32_t buffsize=0, unsi
 
     double msgRateMB = (2.0*(double)buffsize*(double)iters*(double)(numranks-1)) / ((endTime-startTime)*1000.0);
 
-    PROGLOG("MPTEST: MPAlltoAll complete %g MB/s", msgRateMB);
+    PrintLog("MPTEST: MPAlltoAll complete %g MB/s", msgRateMB);
 
     return;
 }
@@ -724,7 +701,7 @@ void MPTest2(IGroup *group, ICommunicator *mpicomm)
     rank_t myrank = group->rank();
     rank_t numranks = group->ordinality();
 
-    PROGLOG("MPTEST: MPTest2: myrank=%u numranks=%u", myrank, numranks);
+    PrintLog("MPTEST: MPTest2: myrank=%u numranks=%u", myrank, numranks);
 
     mpicomm->barrier();
 
@@ -803,7 +780,7 @@ void MPSelfSend(ICommunicator *mpcomm)
     mb.read(receivedMessage);
 
     assertex(sendMessage == receivedMessage);
-    PROGLOG("MPTEST: %s: Message sent from %d to %d", TEST_SELFSEND, myrank, myrank);
+    PrintLog("MPTEST: %s: Message sent from %d to %d", TEST_SELFSEND, myrank, myrank);
 }
 
 /**
@@ -826,27 +803,26 @@ void MPRightShift(ICommunicator* comm)
     comm->recv(recvMsg, source_rank, MPTAG_TEST);
     recvMsg.read(received_msg);
     assertex(source_rank == received_msg);
-    PROGLOG("Message received from node %d to node %d.", source_rank, rank);
+    PrintLog("Message received from node %d to node %d.", source_rank, rank);
 }
 
 /**
  * Test receiving message from an unknown node
  */
-void MPReceiveFromAny(ICommunicator* comm)
+void MPReceiveFromAny(ICommunicator* comm, rank_t nodeRank)
 {
     IGroup* group = comm->getGroup();
-    rank_t nodeRank = group->rank();
     rank_t p = group->ordinality();
     rank_t rank = group->rank();
     rank_t destinationRank = (p-1);
     double expectedValue = 1234.0;
-    PROGLOG("nodeRank=%u", nodeRank);
+    _T("nodeRank="<<nodeRank);
     if (rank == nodeRank)
     {
         CMessageBuffer sendMsg;
         sendMsg.append(expectedValue);
         comm->send(sendMsg, destinationRank, MPTAG_TEST);
-        PROGLOG("Message sent by node %d to node %d.", rank, destinationRank);
+        PrintLog("Message sent by node %d to node %d.", rank, destinationRank);
     }
     if (rank == destinationRank)
     {
@@ -855,20 +831,19 @@ void MPReceiveFromAny(ICommunicator* comm)
         assertex(success);
         double receivedValue;
         recvMsg.read(receivedValue);
-        PROGLOG("rank=%u, nodeRank=%u", comm->getGroup()->rank(recvMsg.getSender()), nodeRank);
+        _T("rank="<<comm->getGroup()->rank(recvMsg.getSender())<<" nodeRank="<<nodeRank);
         assertex(nodeRank == comm->getGroup()->rank(recvMsg.getSender()));
         assertex(expectedValue == receivedValue);
-        PROGLOG("Message successfully received from node %d to node %d.", comm->getGroup()->rank(recvMsg.getSender()), rank);
+        PrintLog("Message successfully received from node %d to node %d.", comm->getGroup()->rank(recvMsg.getSender()), rank);
     }
 }
 
 /**
  * Test one node sending a message to all nodes
  */
-void MPSendToAll(ICommunicator* comm)
+void MPSendToAll(ICommunicator* comm, rank_t nodeRank)
 {
     IGroup* group = comm->getGroup();
-    rank_t nodeRank = group->rank();
     rank_t p = group->ordinality();
     rank_t rank = group->rank();
     double expectedValue = 1234.0;
@@ -883,7 +858,7 @@ void MPSendToAll(ICommunicator* comm)
     comm->recv(recvMsg, nodeRank, MPTAG_TEST, NULL);
     recvMsg.read(receivedValue);
     assertex(expectedValue == receivedValue);
-    PROGLOG("Message received from node %d to node %d.", nodeRank, rank);
+    PrintLog("Message received from node %d to node %d.", nodeRank, rank);
 }
 
 /**
@@ -927,13 +902,12 @@ void MPMultiMTSendRecv(ICommunicator* comm, int counter)
                         sendMsg.append(v);
                         comm->send(sendMsg, destination_rank, MPTAG_TEST);
                         served++;
-                    }
-                    else
+                    } else
                     {
                         break;
                     }
                 }
-                PROGLOG("This thread sent %d", served);
+                _T("This thread sent "<<served);
                 return 0;
             }
         };
@@ -966,14 +940,14 @@ void MPMultiMTSendRecv(ICommunicator* comm, int counter)
                         served++;
                     }
                 }
-                PROGLOG("This thread received %d", served);
+                _T("This thread received "<<served);
                 return 0;
             }
         };
         std::vector<Thread*> workers;
         int s_counter, r_counter;
         s_counter = r_counter = counter;
-        PROGLOG("counter=%d", counter);
+        _T("counter="<<counter);
         for(int i=0;i<SEND_THREADS; i++)
         {
             workers.push_back(new SWorker(comm, &s_counter));
@@ -996,8 +970,8 @@ void MPMultiMTSendRecv(ICommunicator* comm, int counter)
         }
         assertex(s_counter == 0);
         assertex(r_counter == 0);
-        PROGLOG("Rank %d sent %d messages", rank, (counter-s_counter));
-        PROGLOG("Rank %d received %d messages", rank, (counter-r_counter));
+        PrintLog("Rank %d sent %d messages", rank, (counter-s_counter));
+        PrintLog("Rank %d received %d messages", rank, (counter-r_counter));
         delete validate;
     }
     comm->barrier();
@@ -1090,7 +1064,7 @@ void MPNxN(ICommunicator *comm, unsigned numStreams, size32_t perStreamMBSize, s
                         else
                         {
                             unsigned expectedHash = getNextExpectedHash(sender);
-                            owner.verifyAck(receivedHash, expectedHash);
+                            owner.verifyAck(expectedHash, receivedHash);
                         }
                     }
                 }
@@ -1408,49 +1382,81 @@ void MPNxN(ICommunicator *comm, unsigned numStreams, size32_t perStreamMBSize, s
     }
 }
 
-
-// various test use some of these configurable parameters
-static size32_t buffsize = 0;
-static unsigned numiters = 0;
-static unsigned numStreams = 0;
-static unsigned perStreamMBSize = 0;
-static bool async = false;
-
-void runTest(const char *caption, const char *testname, IGroup* group, ICommunicator* comm)
+class TestParameter
 {
-    if (group->rank()==0)
+private:
+    unsigned v1 = 0;
+    rank_t v2 = 0;
+    bool v3 = false;
+    size32_t v4 = 0;
+public:
+//    template<typename T>
+//    void operator=(T v)
+//    {
+//        set<T>(v);
+//    }
+//    template<>
+//    void set<unsigned>(unsigned v){v1 = v;}
+//    template<>
+//    void set<rank_t>(rank_t v){v2 = v;}
+//    template<>
+//    void set<bool>(bool v){v3 = v;}
+//    template<>
+//    void set<size_t>(size_t v){v4 = v;}
+
+    void setUnsigned(unsigned v){v1 = v;}
+    unsigned getUnsigned(){return v1;}
+    void setRank(rank_t v){v2 = v;}
+    rank_t getRank(){return v2;}
+    void setBool(bool v){v3 = v;}
+    bool getBool(){return v3;}
+    void setSize(size_t v){v4 = v;}
+    size_t getSize(){return v4;}
+};
+
+void runTest(const char *caption, char testname[256], const Owned<IGroup>& group,
+        ICommunicator* comm, std::map<std::string, TestParameter> &parameters)
+{
+    if (group.get()->rank()==0)
     {
         printf("\n\n");
-        PROGLOG("%s %s", caption, testname);
-        PROGLOG("========================");
+        PrintLog("%s", caption);
+        PrintLog("========================");
     }
     comm->barrier();
-    if (strieq(testname, TEST_STREAM))
+
+    if (strnicmp(testname, TEST_STREAM, 6) == 0)
         StreamTest(group, comm);
-    else if (strieq(testname, TEST_MULTI))
+    else if (strnicmp(testname, TEST_MULTI, 5) == 0)
         MultiTest(comm);
-    else if (strieq(testname, TEST_RING))
-        MPRing(group, comm, numiters);
-    else if (strieq(testname, TEST_AlltoAll))
-        MPAlltoAll(group, comm, buffsize, numiters);
-    else if (strieq(testname, TEST_RANK))
+    else if (strieq(testname, "MPRing") || strieq(testname, TEST_RING))
+        MPRing(group, comm, parameters[PARAM_NUM_ITERS].getUnsigned());
+    else if (strieq(testname, "MPAlltoAll") || strieq(testname, TEST_AlltoAll))
+        MPAlltoAll(group, comm, parameters[PARAM_BUFF_SIZE].getSize(), parameters[PARAM_NUM_ITERS].getUnsigned());
+    else if (strieq(testname, "MPTest2") || strieq(testname, TEST_RANK))
         MPTest2(group, comm);
     else if (strieq(testname, TEST_SELFSEND))
         MPSelfSend(comm);
-    else if (strieq(testname, TEST_SINGLE_SEND))
+    else if (strieq(testname, TEST_SINGLE_SEND) )
         Test1(group, comm);
-    else if (strieq(testname, TEST_RIGHT_SHIFT))
+    else if ( strieq(testname, TEST_RIGHT_SHIFT) )
         MPRightShift(comm);
-    else if (strieq(testname, TEST_RECV_FROM_ANY))
-        MPReceiveFromAny(comm);
-    else if (strieq(testname, TEST_SEND_TO_ALL))
-        MPSendToAll(comm);
-    else if (strieq(testname, TEST_MULTI_MT))
-        MPMultiMTSendRecv(comm, numiters);
-    else if (strieq(testname, TEST_NXN))
-        MPNxN(comm, numStreams, perStreamMBSize, buffsize, async);
+    else if ( strieq(testname, TEST_RECV_FROM_ANY) )
+        MPReceiveFromAny(comm, parameters[PARAM_INPUT_RANK].getRank());
+    else if ( strieq(testname, TEST_SEND_TO_ALL) )
+        MPSendToAll(comm, parameters[PARAM_INPUT_RANK].getRank());
+    else if ( strieq(testname, TEST_MULTI_MT) )
+        MPMultiMTSendRecv(comm, parameters[PARAM_NUM_ITERS].getUnsigned());
+    else if ( strieq(testname, "MPNxN") || strieq(testname, TEST_NXN) )
+        MPNxN(comm, parameters[PARAM_NUM_STREAMS].getUnsigned(),
+                parameters[PARAM_PERSTREAM_MB_SIZE].getUnsigned(),
+                parameters[PARAM_BUFF_SIZE].getSize(),
+                parameters[PARAM_ASYNC].getBool());
+    else if ((int) (strlen(testname)) > 0)
+        PrintLog("MPTEST: Error, invalid testname specified (-t %s)", testname);
     else
-        PROGLOG("MPTEST: Error, invalid testname specified (-t %s)", testname);
+        // default is MPRing ...
+        MPRing(group, comm, parameters[PARAM_NUM_ITERS].getUnsigned());
     comm->barrier();
 }
 
@@ -1458,14 +1464,12 @@ bool createNodeList(IArrayOf<INode> &nodes, const char* hostfile, int my_port, r
     unsigned i = 1;
     char hoststr[256] = { "" };
     FILE* fp = fopen(hostfile, "r");
-    if (fp == NULL)
-    {
-        PROGLOG("MPTest: Error, cannot open hostfile <%s>", hostfile);
+    if (fp == NULL) {
+        PrintLog("MPTest: Error, cannot open hostfile <%s>", hostfile);
         return false;
     }
     char line[256] = { "" };
-    while (fgets(line, 255, fp) != NULL)
-    {
+    while (fgets(line, 255, fp) != NULL) {
         if ((max_ranks > 0) && ((i - 1) >= max_ranks))
             break;
 
@@ -1480,25 +1484,57 @@ bool createNodeList(IArrayOf<INode> &nodes, const char* hostfile, int my_port, r
     return true;
 }
 
-void printHelp(char* executableName)
-{
+int getServerPort(int basePort) {
+    int my_port = basePort;
+    int rank = getMPIGlobalRank();
+    if (rank >= 0)            // mpi launch
+    {
+        /* when launched via MPI, my_port is same
+         * Ideally MPI would pass in rank and the rest can be done internally.
+         * For now manipulate my_port in useMPI case to make different per process based on rank.
+         */
+        my_port += rank;
+    }
+    return my_port;
+}
+
+void printHelp(char* executableName) {
     printf("\nMPTEST: Usage: %s <myport> [-f <hostfile> [-t <testname> -b <buffsize> -i <iters> -r <rank> -n <numprocs> -d] | <ip:port> <ip:port>] [-mpi] [-mp]\n\n",executableName);
     std::vector<std::string> tests = { TEST_RANK, TEST_SELFSEND, TEST_MULTI,
             TEST_STREAM, TEST_RING, TEST_AlltoAll, TEST_SINGLE_SEND,
             TEST_RIGHT_SHIFT, TEST_RECV_FROM_ANY, TEST_SEND_TO_ALL,
             TEST_MULTI_MT, TEST_NXN };
-    printf("\t <testname>");
-    for (auto &testName: tests)
-        printf("\t%s\n\t\t", testName.c_str());
+    std::vector<std::string>::iterator it = tests.begin();
+    printf("\t <testname>\t%s\n", (*it).c_str());
+    it++;
+    for (; it != tests.end(); ++it)
+        printf("\t\t\t%s\n", (*it).c_str());
     printf("\n");
+}
+
+TestParameter &initParam(std::map<std::string, TestParameter> &parameters, std::string paramName)
+{
+    if (parameters.find(paramName)==parameters.end())
+        parameters[paramName] = TestParameter();
+    return parameters[paramName];
 }
 
 int main(int argc, char* argv[])
 {
     int mpi_debug = 0;
+    std::map<std::string, TestParameter> parameters;
+    // Test parameters
     char testname[256] = { "" };
-    rank_t max_ranks = 0;
-    unsigned startupDelay = 0;
+    initParam(parameters, PARAM_BUFF_SIZE).setSize(0);
+    initParam(parameters, PARAM_NUM_ITERS).setUnsigned(0);
+    initParam(parameters, PARAM_MAX_RANKS).setRank(0);
+    initParam(parameters, PARAM_INPUT_RANK).setRank(0);
+    initParam(parameters, PARAM_NUM_STREAMS).setUnsigned(0);
+    initParam(parameters, PARAM_PERSTREAM_MB_SIZE).setUnsigned(0);
+    initParam(parameters, PARAM_ASYNC).setBool(false);
+
+    bool useMPI = false;
+    bool useMP = false;
 
     InitModuleObjects();
     EnableSEHtoExceptionMapping();
@@ -1547,19 +1583,20 @@ int main(int argc, char* argv[])
     int argSize = argc;
     char** argL = argv;
 
-    if (argSize<3)
-    {
+    if (argSize<3) {
         printHelp(argv[0]);
         return 0;
     }
 
-    try
-    {
+    try {
         EnableSEHtoExceptionMapping();
         StringBuffer lf;
-
+        startMPI();
         rank_t tot_ranks = 0;
-        int my_port = atoi(argv[1]);
+        int basePort = atoi(argL[1]);
+
+
+        int my_port = getServerPort(basePort);
         char logfile[256] = { "" };
         sprintf(logfile,"mptest-%d.log",my_port);
         openLogFile(lf, logfile);
@@ -1574,6 +1611,7 @@ int main(int argc, char* argv[])
         }
         if (hostfile)
         {
+
             int j = 4;
             while (j < argSize)
             {
@@ -1593,7 +1631,7 @@ int main(int argc, char* argv[])
                 {
                     if ((j+1) < argSize)
                     {
-                        buffsize = atoi(argL[j+1]);
+                        parameters[PARAM_BUFF_SIZE].setSize(atoi(argL[j+1]));
                         j++;
                     }
                 }
@@ -1601,7 +1639,7 @@ int main(int argc, char* argv[])
                 {
                     if ((j+1) < argSize)
                     {
-                        numiters = atoi(argL[j+1]);
+                        parameters[PARAM_NUM_ITERS].setUnsigned(atoi(argL[j+1]));
                         j++;
                     }
                 }
@@ -1609,15 +1647,31 @@ int main(int argc, char* argv[])
                 {
                     if ((j+1) < argSize)
                     {
-                        max_ranks = atoi(argL[j+1]);
+                        parameters[PARAM_MAX_RANKS].setRank(atoi(argL[j+1]));
                         j++;
                     }
+                }
+                else if (streq(argL[j], "-r"))
+                {
+                    if ((j+1) < argSize)
+                    {
+                        parameters[PARAM_INPUT_RANK].setRank(atoi(argL[j+1]));
+                        j++;
+                    }
+                }
+                else if (streq(argL[j], "-mpi"))
+                {
+                    useMPI = true;
+                }
+                else if (streq(argL[j], "-mp"))
+                {
+                    useMP = true;
                 }
                 else if (streq(argv[j], "-s"))
                 {
                     if ((j+1) < argc)
                     {
-                        numStreams = atoi(argv[j+1]);
+                        parameters[PARAM_NUM_STREAMS].setUnsigned(atoi(argv[j+1]));
                         j++;
                     }
                 }
@@ -1625,31 +1679,26 @@ int main(int argc, char* argv[])
                 {
                     if ((j+1) < argc)
                     {
-                        perStreamMBSize = atoi(argv[j+1]);
+                        parameters[PARAM_PERSTREAM_MB_SIZE].setUnsigned(atoi(argv[j+1]));
                         j++;
                     }
                 }
                 else if (streq(argv[j], "-a"))
-                    async = true;
-                else if (streq(argv[j], "-delay"))
-                {
-                    if ((j+1) < argc)
-                    {
-                        startupDelay = atoi(argv[j+1]);
-                        j++;
-                    }
-                }
+                    parameters[PARAM_ASYNC].setBool(true);
                 j++;
             }
-            if (!createNodeList(nodes, hostfile, my_port, max_ranks))
+            if (!createNodeList(nodes, hostfile, my_port, parameters[PARAM_MAX_RANKS].getRank()))
+            {
+                stopMPI();
                 return 1;
+            }
         }
         else
         {
             unsigned i = 1;
             while (i+1 < argSize)
             {
-                PROGLOG("MPTEST: adding node %u, port = <%s>", i-1, argL[i+1]);
+                PrintLog("MPTEST: adding node %u, port = <%s>", i-1, argL[i+1]);
                 INode *newNode = createINode(argL[i+1], my_port);
                 nodes.append(*newNode);
                 i++;
@@ -1657,17 +1706,9 @@ int main(int argc, char* argv[])
         }
         tot_ranks = nodes.length();
 
-        if (startupDelay)
-        {
-            PROGLOG("Pausing for startupDelay = %u second(s)", startupDelay);
-            MilliSleep(startupDelay * 1000);
-            PROGLOG("Resuming");
-        }
-
         Owned<IGroup> group = createIGroup(tot_ranks, nodes.getArray());
 
         // stop if not meant for this host ...
-
         IpAddress myIp;
         GetHostIp(myIp);
         SocketEndpoint myEp(my_port, myIp);
@@ -1680,8 +1721,11 @@ int main(int argc, char* argv[])
         }
 
         if (die)
+        {
+            stopMPI();
             return 0;
-        PROGLOG("MPTEST: Starting, port = %d tot ranks = %u", my_port, tot_ranks);
+        }
+        PrintLog("MPTEST: Starting, port = %d tot ranks = %u", my_port, tot_ranks);
         startMPServer(my_port);
 
         if (mpi_debug)
@@ -1690,21 +1734,30 @@ int main(int argc, char* argv[])
             {
                 StringBuffer urlStr;
                 nodes.item(k).endpoint().getUrlStr(urlStr);
-                PROGLOG("MPTEST: adding node %u, %s", k, urlStr.str());
+                PrintLog("MPTEST: adding node %u, %s", k, urlStr.str());
             }
         }
 
-        Owned<ICommunicator> comm = createCommunicator(group);
-        runTest("MPTEST: Running MP Test:", testname, group, comm);
+        Owned<ICommunicator> comm;
+        if (useMP || !(useMP || useMPI))
+        {
+            comm.setown(createCommunicator(group));
+            runTest("MPTEST: Running MP Test:", testname, group, comm, parameters);
+        }
+        if (useMPI || !(useMP || useMPI))
+        {
+            comm.setown(createMPICommunicator(group));
+            runTest("MPTEST: Running MPI Test:", testname, group, comm, parameters);
+        }
 
         stopMPServer();
+        stopMPI();
     }
-    catch (IException *e)
-    {
+    catch (IException *e) {
+        stopMPI();
         pexception("Exception",e);
-        e->Release();
     }
 
-    PROGLOG("MPTEST: bye");
+    PrintLog("MPTEST: bye");
     return 0;
 }
