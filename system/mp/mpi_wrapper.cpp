@@ -27,8 +27,8 @@ private:
     bool cancellationInProgress = false;
 //    CMessageBuffer* data = NULL;              // Data structure which points to the sent/recv buffer
     CriticalSection dataChangeLock;
-    void lock(){if (!locked) dataChangeLock.enter(); locked=true;}
-    void unlock(){if (locked) dataChangeLock.leave(); locked=false;}
+    void lock(){dataChangeLock.enter(); locked=true;}
+    void unlock(){locked=false; dataChangeLock.leave();}
 public:    
     bool isSend(){return send;}
     bool isReceive(){return !isSend();}
@@ -51,6 +51,7 @@ public:
     void notifyCancellation()
     {
         lock();
+        _TF("(rank, tag)",rank, tag);
         cancellationInProgress = true;
         unlock();
     }
@@ -79,7 +80,8 @@ public:
 
     ~CommData()
     {
-
+        _T("CommData Delete locked = "<<locked);
+        assertex(locked == false);
     }
 };
 
@@ -166,7 +168,7 @@ int getRank(rank_t sourceRank)
 #define SPECIAL_TAG_BASE (TAG_UB/2) // reserve half range for special tags (inc. reply tags)
 int getMPITag(mptag_t mptag)
 {
-    _TF("getTag", mptag);
+    _TF("getMPITag", mptag);
 
     if (mptag == TAG_ALL)
         return MPI::ANY_TAG;
@@ -209,7 +211,7 @@ MPI::Status waitToComplete( bool& completed, bool& error, bool& canceled, bool& 
     MPI::Status stat;
     unsigned remaining;
     bool noCancellation;
-    while ((noCancellation = commData->lockFromCancellation()) && !(completed || error || (timedout = tm.timedout(&remaining))))
+    while (!(completed || error || (timedout = tm.timedout(&remaining))) && (noCancellation = commData->lockFromCancellation()))
     {
         completed = commData->request.Test(stat);
         commData->releaseCancellationLock();
@@ -234,8 +236,7 @@ MPI::Status hasIncomingData(int sourceRank, int mptag, const MPI::Comm& comm,
     int flag;
     unsigned remaining;
     bool noCancellation;
-
-    while ((noCancellation = commData->lockFromCancellation()) && !(incomingMessage || error || (timeout !=0 && tm.timedout(&remaining))))
+    while (!(incomingMessage || error || (timeout !=0 && tm.timedout(&remaining))) && (noCancellation = commData->lockFromCancellation()))
     {
         incomingMessage = comm.Iprobe(sourceRank, mptag, stat);
         commData->releaseCancellationLock();
@@ -384,9 +385,6 @@ hpcc_mpi::CommStatus hpcc_mpi::sendData(rank_t dstRank, mptag_t mptag, CMessageB
     CTimeMon tm(timeout);
     unsigned remaining;
     int target = getRank(dstRank); int tag = getMPITag(mptag);
-//    mptag_t t = getTag(tag);
-//    assertex(t==tag);
-//    _T("Rank="<<target<<" Tag="<<tag);
     CommData* commData = new CommData(true, target, tag, comm);
     bool timedout = false; bool error = false; bool canceled = false; bool completed;
     bool bufferedSendComplete = false;
@@ -401,7 +399,7 @@ hpcc_mpi::CommStatus hpcc_mpi::sendData(rank_t dstRank, mptag_t mptag, CMessageB
             bool notCanceled = commData->lockFromCancellation();
             if (notCanceled)
             {
-                commData->request  = comm.Ibsend(mbuf.bufferBase(), mbuf.length(), MPI_BYTE, target, tag);
+                commData->request = comm.Ibsend(mbuf.bufferBase(), mbuf.length(), MPI_BYTE, target, tag);
                 commData->releaseCancellationLock();
             }
             bufferedSendComplete = true;
@@ -474,8 +472,8 @@ hpcc_mpi::CommStatus hpcc_mpi::readData(rank_t &sourceRank, mptag_t &mptag, CMes
         {   //if it was canceled by another thread commData would have cleanedup after itself so nothing to do here.
             if (!error && completed)
             {
-                bool noCancellation = commData->lockFromCancellation();
-                if (noCancellation)
+                notCanceled = commData->lockFromCancellation();
+                if (notCanceled)
                 {
                     sourceRank = stat.Get_source();
                     mptag = getMPTag(stat.Get_tag());
@@ -483,7 +481,7 @@ hpcc_mpi::CommStatus hpcc_mpi::readData(rank_t &sourceRank, mptag_t &mptag, CMes
                     mbuf.setReplyTag(popMPTag(mbuf));
                     commData->releaseCancellationLock();
                 }
-                canceled = !noCancellation;
+                canceled = !notCanceled;
             } else if (timedout)
             {
                 cancelComm(commData);
