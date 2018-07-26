@@ -1796,6 +1796,19 @@ public:
         // NB: inputGrouped == outputGrouped for now, but may want output to be ungrouped
 
         openRequest();
+        if (queryOutputCompressionDefault())
+        {
+            expander.setown(getExpander(queryOutputCompressionDefault()));
+            if (expander)
+            {
+                DBGLOG("mck - created expander <%s>", queryOutputCompressionDefault());
+                expandMb.setEndian(__BIG_ENDIAN);
+                request.appendf("\"outputCompression\" : \"%s\",\n", queryOutputCompressionDefault());
+            }
+            else
+                WARNLOG("Failed to created compression decompressor for: %s", queryOutputCompressionDefault());
+        }
+
         request.appendf("\"format\" : \"binary\",\n"
             "\"node\" : {\n"
             " \"fileName\" : \"%s\"", filename);
@@ -1925,6 +1938,7 @@ protected:
     }
     void refill()
     {
+        DBGLOG("mck - refill()");
         if (firstRequest)
         {
             handleFirstRequest();
@@ -1937,6 +1951,7 @@ protected:
             eof = true;
             return;
         }
+        DBGLOG("mck - refill(), cursorLength = %u", cursorLength);
         MemoryBuffer mrequest;
         MemoryBuffer newReply;
         initSendBuffer(mrequest);
@@ -1951,9 +1966,18 @@ protected:
             reply.swapWith(newReply);
             reply.read(bufRemaining);
             eof = (bufRemaining == 0);
+            if (expander)
+            {
+                size32_t expandedSz = expander->init(reply.bytes()+reply.getPos());
+                DBGLOG("mck - refill(), expandedSz = %u", expandedSz);
+                expandMb.clear().reserve(expandedSz);
+                expander->expand(expandMb.bufferBase());
+                expandMb.swapWith(reply);
+            }
         }
         else
         {
+            DBGLOG("mck - refill(), handle = %u, newHandle = %u", handle, newHandle);
             assertex(newHandle == 0);
             sendRequest(cursorLength, reply.readDirect(cursorLength));
         }
@@ -1979,6 +2003,14 @@ protected:
         reply.read(handle);
         reply.read(bufRemaining);
         eof = (bufRemaining == 0);
+        if (expander)
+        {
+            size32_t expandedSz = expander->init(reply.bytes()+reply.getPos());
+            DBGLOG("mck - sendRequest(), expandedSz = %u", expandedSz);
+            expandMb.clear().reserve(expandedSz);
+            expander->expand(expandMb.bufferBase());
+            expandMb.swapWith(reply);
+        }
     }
     StringBuffer request;
     MemoryBuffer reply;
@@ -1989,6 +2021,8 @@ protected:
 
     bool firstRequest = true;
     std::unordered_map<std::string, std::string> virtualFields;
+    Owned<IExpander> expander;
+    MemoryBuffer expandMb;
 };
 
 class CRemoteFilteredFileIO : public CRemoteFilteredFileIOBase
@@ -2033,6 +2067,13 @@ public:
 protected:
     const RtlRecord &recInfo;
 };
+
+static StringAttr remoteOutputCompressionDefault;
+void setRemoteOutputCompressionDefault(const char *type)
+{
+    remoteOutputCompressionDefault.set(type);
+}
+const char *queryOutputCompressionDefault() { return remoteOutputCompressionDefault; }
 
 extern IRemoteFileIO *createRemoteFilteredFile(SocketEndpoint &ep, const char * filename, IOutputMetaData *actual, IOutputMetaData *projected, const RowFilter &fieldFilters, bool compressed, bool grouped, unsigned __int64 chooseN)
 {
@@ -3924,14 +3965,16 @@ class CRemoteRequest : public CSimpleInterfaceOf<IInterface>
     OutputFormat format;
     unsigned __int64 replyLimit;
     Linked<IRemoteActivity> activity;
+    Linked<ICompressor> compressor;
 public:
-    CRemoteRequest(OutputFormat _format, unsigned __int64 _replyLimit, IRemoteActivity *_activity)
-        : format(_format), replyLimit(_replyLimit), activity(_activity)
+    CRemoteRequest(OutputFormat _format, ICompressor *_compressor, unsigned __int64 _replyLimit, IRemoteActivity *_activity)
+        : format(_format), compressor(_compressor), replyLimit(_replyLimit), activity(_activity)
     {
     }
     OutputFormat queryFormat() const { return format; }
     unsigned __int64 queryReplyLimit() const { return replyLimit; }
     IRemoteActivity *queryActivity() const { return activity; }
+    ICompressor *queryCompressor() const { return compressor; }
 };
 
 enum OpenFileFlag { of_null=0x0, of_key=0x01 };
@@ -5286,6 +5329,31 @@ class CRemoteFileServer : implements IRemoteFileServer, public CInterface
 
 #define IMPERSONATE_USER(client) cImpersonateBlock ublock(client)
 
+    bool handleFull(MemoryBuffer &inMb, size32_t inPos, MemoryBuffer &compressMb, ICompressor *compressor, size32_t replyLimit, size32_t &totalSz)
+    {
+        size32_t sz = inMb.length()-inPos;
+        DBGLOG("mck - handleFull(), sz = %u, replyLimit = %u", sz, replyLimit);
+        if (sz < replyLimit)
+            return false;
+
+        if (!compressor)
+            return true;
+
+        totalSz += sz;
+        const void *data = inMb.bytes()+inPos;
+        assertex(compressor->write(data, sz) == sz);
+        inMb.setLength(inPos);
+        if (compressMb.capacity() > replyLimit)
+        {
+            DBGLOG("mck - handleFull(), returning true");
+            return true;
+        }
+        else
+        {
+            DBGLOG("mck - handleFull(), returning false");
+            return false;
+        }
+    }
 public:
 
     IMPLEMENT_IINTERFACE
@@ -6185,6 +6253,27 @@ public:
 
         /* Example JSON request:
          * {
+         *  "format" : "binary",
+         *  "handle" : "1234",
+         *  "replyLimit" : "64",
+         *  "outputCompression" : "LZ4",
+         *  "node" : {
+         *   "kind" : "diskread",
+         *   "fileName": "examplefilename",
+         *   "keyFilter" : "f1='1    '",
+         *   "chooseN" : 5,
+         *   "compressed" : "false"
+         *   "input" : {
+         *    "f1" : "string5",
+         *    "f2" : "string5"
+         *   },
+         *   "output" : {
+         *    "f2" : "string",
+         *    "f1" : "real"
+         *   }
+         *  }
+         * }
+         * {
          *  "format" : "xml",
          *  "handle" : "1234",
          *  "replyLimit" : "64",
@@ -6243,6 +6332,8 @@ public:
         int cursorHandle = requestTree->getPropInt("handle");
         OutputFormat outputFormat = outFmt_Xml;
         unsigned __int64 replyLimit = 0;
+        Owned<ICompressor> compressor;
+        MemoryBuffer compressMb;
 
         Owned<IRemoteActivity> outputActivity;
         OpenFileInfo fileInfo;
@@ -6262,10 +6353,26 @@ public:
 
             replyLimit = requestTree->getPropInt64("replyLimit", defaultDaFSReplyLimitKB) * 1024;
 
+            if (requestTree->hasProp("outputCompression"))
+            {
+                const char *outputCompressionType = requestTree->queryProp("outputCompression");
+                if (isEmptyString(outputCompressionType))
+                    compressor.setown(queryDefaultCompressHandler()->getCompressor());
+                else if (outFmt_Binary == outputFormat)
+                {
+                    compressor.setown(getCompressor(outputCompressionType));
+                    if (!compressor)
+                        WARNLOG("Unknown compressor type specified: %s", outputCompressionType);
+                }
+                else
+                    WARNLOG("Output compression not supported for format: %s", outputFmtStr);
+            }
+
+
             // In future this may be passed the request and build a chain of activities and return sink.
             outputActivity.setown(createOutputActivity(*requestTree));
 
-            Owned<CRemoteRequest> remoteRequest = new CRemoteRequest(outputFormat, replyLimit, outputActivity);
+            Owned<CRemoteRequest> remoteRequest = new CRemoteRequest(outputFormat, compressor, replyLimit, outputActivity);
 
             StringBuffer requestStr("jsonrequest:");
             outputActivity->getInfoStr(requestStr);
@@ -6281,6 +6388,7 @@ public:
         else // known handle, continuation
         {
             outputActivity.set(fileInfo.remoteRequest->queryActivity());
+            compressor.set(fileInfo.remoteRequest->queryCompressor());
             outputFormat = fileInfo.remoteRequest->queryFormat();
             replyLimit = fileInfo.remoteRequest->queryReplyLimit();
         }
@@ -6314,12 +6422,28 @@ public:
             MemoryBufferBuilder outBuilder(resultBuffer, out->getMinRecordSize());
             if (outFmt_Binary == outputFormat)
             {
-                DelayedSizeMarker dataLenMarker(reply); // data length
+                if (compressor)
+                {
+                    compressMb.setEndian(__BIG_ENDIAN);
+                    compressMb.append(reply);
+                }
+
+                DelayedMarker<size32_t> dataLenMarker(compressor ? compressMb : reply); // data length
+
+                if (compressor)
+                {
+                    size32_t initialSz = replyLimit >= 0x10000 ? 0x10000 : replyLimit;
+                    compressor->open(compressMb, initialSz);
+                }
+
                 outBuilder.setBuffer(reply); // write direct to reply buffer for efficiency
+                unsigned __int64 numProcessedStart = outputActivity->queryProcessed();
+                size32_t totalDataSz = 0;
+                size32_t dataStartPos = reply.length();
 
                 if (grouped)
                 {
-                    bool pastFirstRow = outputActivity->queryProcessed()>0;
+                    bool pastFirstRow = numProcessedStart>0;
                     do
                     {
                         size32_t eogPos = 0;
@@ -6354,7 +6478,7 @@ public:
                         }
                         pastFirstRow = true;
                     }
-                    while (reply.length() < replyLimit);
+                    while (!handleFull(reply, dataStartPos, compressMb, compressor, replyLimit, totalDataSz));
                 }
                 else
                 {
@@ -6368,13 +6492,36 @@ public:
                             break;
                         }
                     }
-                    while (reply.length() < replyLimit);
+                    while (!handleFull(reply, dataStartPos, compressMb, compressor, replyLimit, totalDataSz));
                 }
-                dataLenMarker.write();
+                if (compressor)
+                {
+                    size32_t sz = reply.length()-dataStartPos;
+                    DBGLOG("mck - after rows, sz = %u", sz);
+                    if (sz)
+                    {
+                        totalDataSz += sz;
+                        const void *data = reply.bytes()+dataStartPos;
+                        assertex(compressor->write(data, sz) == sz);
+                        DBGLOG("mck - after complressor->write()");
+                        reply.setLength(dataStartPos);
+                    }
+                }
+                dataLenMarker.write(compressor ? totalDataSz : reply.length()-dataStartPos);
                 DelayedSizeMarker cursorLenMarker(reply); // cursor length
                 if (!eoi)
                     outputActivity->serializeCursor(reply);
                 cursorLenMarker.write();
+                if (compressor)
+                {
+                    size32_t sz = reply.length()-dataStartPos;
+                    DBGLOG("mck - after marker, sz = %u", sz);
+                    const void *data = reply.bytes()+dataStartPos;
+                    assertex(compressor->write(data, sz) == sz);
+                    compressor->close();
+                    DBGLOG("mck - after close");
+                    reply.swapWith(compressMb);
+                }
             }
             else
             {

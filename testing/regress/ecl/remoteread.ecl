@@ -17,13 +17,16 @@
 
 //version optRemoteRead=false
 //version optRemoteRead=true
+//version optRemoteRead=true,optCompression='LZ4'
 
 #option('layoutTranslation', true);
 
 import Std.File AS FileServices;
 import ^ as root;
 optRemoteRead := #IFDEFINED(root.optRemoteRead, false);
+optCompression := #IFDEFINED(root.optCompression, '');
 #option('forceRemoteRead', optRemoteRead);
+#option('remoteCompressedOutput', optCompression);
 
 
 #onwarning(4523, ignore);
