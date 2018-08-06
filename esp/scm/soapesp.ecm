@@ -208,3 +208,31 @@ SCMinterface IRpcRequestBinding(IRpcMessageBinding)
     //void serialize(StringBuffer& buffer, const char *rootname);
     void post(IRpcResponseBinding& response);
 };
+
+
+#ifndef ADDED_WORKER
+#define ADDED_WORKER
+class CClientAsyncThread: public Thread
+{
+public:
+    void *(*workerFunc)(void *);
+    Owned<IRpcRequestBinding> m_esprequest;
+    CClientAsyncThread(void *(*_workerFunc)(void *), IRpcRequestBinding *_esprequest)
+    {
+        workerFunc = _workerFunc;
+        m_esprequest.setown(_esprequest);
+        setStackSize(0x10000);
+    }
+    int run()
+    {
+        workerFunc((void *)LINK(m_esprequest));
+        return 0;
+    }
+};
+
+void startAsyncThread(void *(*_workerFunc)(void *), IRpcRequestBinding *_esprequest)
+{
+    CClientAsyncThread *thread = new CClientAsyncThread(_workerFunc, _esprequest);
+    thread->startRelease();
+}
+#endif // ADDED_WORKER

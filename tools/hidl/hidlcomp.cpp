@@ -6545,8 +6545,9 @@ void EspServInfo::write_esp_client_ipp()
     // outs("#ifdef _WIN32\n");
     // outs("\tstatic void espWorkerThread(void* data);\n");
     // outs("#else\n");
-    outs("\tstatic void *espWorkerThread(void *data);\n");
+    outs("\tstatic void *(*espWorkerThread)(void *data);\n");
     // outs("#endif\n");
+#if 0
     outs("\n");
     outf("\tclass CClient%sThread: public Thread\n", name_);
     outs("\t{\n");
@@ -6564,6 +6565,7 @@ void EspServInfo::write_esp_client_ipp()
     outs("\t\t}\n");
     outs("\t};\n");
     // mck
+#endif
 
     outs("};\n\n");
 }
@@ -6651,9 +6653,13 @@ void EspServInfo::write_esp_client()
         outs("}\n");
 #endif
 
+#if 0
         // mck
         outf("\tCClient%sThread *clientthread = new CClient%sThread(esprequest);\n", name_, name_);
         outs("\tclientthread->startRelease();\n");
+#else
+        outf("\tstartAsyncThread(CClient%s::espWorkerThread, esprequest);\n", name_);
+#endif
         outs("\n");
         outs("}\n");
         // mck
@@ -6726,7 +6732,7 @@ void EspServInfo::write_esp_client()
     outs("\n");
 #endif
 
-    outf("void *CClient%s::espWorkerThread(void *data)\n", name_);
+    outf("void *(*CClient%s::espWorkerThread)(void *data)\n", name_);
     // outf("#endif\n");
     // mck
 
