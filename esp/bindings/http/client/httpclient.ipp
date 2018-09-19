@@ -108,7 +108,12 @@ private:
     int m_numRequests = 0;
     SocketEndpoint m_ep;
 
-    virtual int connect(StringBuffer& errmsg);
+    virtual int connect(StringBuffer& errmsg, bool forceNewConnection=false);
+
+    int sendRequest(const char* method, const char* contenttype, StringBuffer& request, StringBuffer& response, bool forceNewConnection);
+    int sendRequest(IProperties *headers, const char* method, const char* contenttype, StringBuffer& request, StringBuffer& response, StringBuffer& responseStatus, bool alwaysReadContent, bool forceNewConnection);
+    int proxyRequest(IHttpMessage *request, IHttpMessage *response,  bool forceNewConnection);
+    int postRequest(ISoapMessage &req, ISoapMessage& resp, bool forceNewConnection);
 
 public:
     IMPLEMENT_IINTERFACE;

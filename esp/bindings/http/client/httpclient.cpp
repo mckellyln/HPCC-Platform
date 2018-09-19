@@ -38,6 +38,7 @@
 **************************************************************************/
 #define URL_MAX  512
 
+//TODO: 1. when disabled don't init persistent handler? 2. Separate toggle from disableKeepAlive
 CHttpClientContext::CHttpClientContext()
 {
     initPersistentHandler();
@@ -213,7 +214,7 @@ void CHttpClient::setTimeOut(unsigned int timeout)
     m_readTimeoutSecs =  timeout;
 }
 
-int CHttpClient::connect(StringBuffer& errmsg)
+int CHttpClient::connect(StringBuffer& errmsg, bool forceNewConnection)
 {
     SocketEndpoint ep;
 
@@ -244,7 +245,7 @@ int CHttpClient::connect(StringBuffer& errmsg)
             ep.port=80;
     }
     m_ep = ep;
-    Linked<ISocket> pSock = m_disableKeepAlive?nullptr:m_persistentHandler->getAvailable(&ep);
+    Linked<ISocket> pSock = (m_disableKeepAlive || forceNewConnection)?nullptr:m_persistentHandler->getAvailable(&ep);
     if(pSock)
     {
         m_isPersistentSocket = true;
@@ -303,8 +304,16 @@ int CHttpClient::connect(StringBuffer& errmsg)
 
 int CHttpClient::sendRequest(const char* method, const char* contenttype, StringBuffer& request, StringBuffer& response)
 {
+    int ret = sendRequest(method, contenttype, request, response, false);
+    if (ret == -2)
+        ret = sendRequest(method, contenttype, request, response, true);
+    return ret;
+}
+
+int CHttpClient::sendRequest(const char* method, const char* contenttype, StringBuffer& request, StringBuffer& response, bool forceNewConnection)
+{
     StringBuffer errmsg;
-    if(connect(errmsg) < 0)
+    if (connect(errmsg, forceNewConnection) < 0)
     {
         response.append(errmsg);
         return -1;
@@ -376,8 +385,9 @@ int CHttpClient::sendRequest(const char* method, const char* contenttype, String
 
     if (m_readTimeoutSecs)
         httpresponse->setTimeOut(m_readTimeoutSecs);
-    httpresponse->receive(false, NULL);  // MORE - pass in IMultiException if we want to see exceptions (which are not fatal)
-
+    int ret = httpresponse->receive(false, NULL);  // MORE - pass in IMultiException if we want to see exceptions (which are not fatal)
+    if (ret < 0 && m_isPersistentSocket && httpresponse->getPeerClosed())
+        return -2;
 #ifdef COOKIE_HANDLING
     if(m_context)
     {
@@ -453,6 +463,14 @@ void copyCookies(CHttpMessage &copyTo, CHttpMessage &copyFrom, const char *host)
 
 int CHttpClient::proxyRequest(IHttpMessage *request, IHttpMessage *response)
 {
+    int ret = proxyRequest(request, response, false);
+    if (ret == -2)
+        ret = proxyRequest(request, response, true);
+    return ret;
+}
+
+int CHttpClient::proxyRequest(IHttpMessage *request, IHttpMessage *response, bool forceNewConnection)
+{
     CHttpRequest *forwardRequest = static_cast<CHttpRequest*>(request);
     assertex(forwardRequest != nullptr);
 
@@ -464,7 +482,7 @@ int CHttpClient::proxyRequest(IHttpMessage *request, IHttpMessage *response)
     assertex(forwardResponse != nullptr);
 
     StringBuffer errmsg;
-    if(connect(errmsg) < 0)
+    if (connect(errmsg, forceNewConnection) < 0)
     {
         forwardResponse->setContent(errmsg);
         forwardResponse->setContentType(HTTP_TYPE_TEXT_PLAIN);
@@ -510,7 +528,9 @@ int CHttpClient::proxyRequest(IHttpMessage *request, IHttpMessage *response)
 
     if (m_readTimeoutSecs)
         httpresponse->setTimeOut(m_readTimeoutSecs);
-    httpresponse->receive(false, nullptr);
+    int ret = httpresponse->receive(false, nullptr);
+    if (ret < 0 && m_isPersistentSocket && httpresponse->getPeerClosed())
+        return -2;
 
     copyCookies(*forwardResponse, *httpresponse, m_host);
     copyHeaders(*forwardResponse, *httpresponse);
@@ -534,8 +554,16 @@ int CHttpClient::proxyRequest(IHttpMessage *request, IHttpMessage *response)
 
 int CHttpClient::sendRequest(IProperties *headers, const char* method, const char* contenttype, StringBuffer& content, StringBuffer& responseContent, StringBuffer& responseStatus, bool alwaysReadContent)
 {
+    int ret = sendRequest(headers, method, contenttype, content, responseContent, responseStatus, alwaysReadContent, false);
+    if (ret == -2)
+        ret = sendRequest(headers, method, contenttype, content, responseContent, responseStatus, alwaysReadContent, true);
+    return ret;
+}
+
+int CHttpClient::sendRequest(IProperties *headers, const char* method, const char* contenttype, StringBuffer& content, StringBuffer& responseContent, StringBuffer& responseStatus, bool alwaysReadContent, bool forceNewConnection)
+{
     StringBuffer errmsg;
-    if(connect(errmsg) < 0)
+    if (connect(errmsg, forceNewConnection) < 0)
     {
         responseContent.append(errmsg);
         return -1;
@@ -625,7 +653,9 @@ int CHttpClient::sendRequest(IProperties *headers, const char* method, const cha
 
     if (m_readTimeoutSecs)
         httpresponse->setTimeOut(m_readTimeoutSecs);
-    httpresponse->receive(alwaysReadContent, me);  // MORE - pass in IMultiException if we want to see exceptions (which are not fatal)
+    int ret = httpresponse->receive(alwaysReadContent, me);  // MORE - pass in IMultiException if we want to see exceptions (which are not fatal)
+    if (ret < 0 && m_isPersistentSocket && httpresponse->getPeerClosed())
+        return -2;
 
 #ifdef COOKIE_HANDLING
     if(m_context)
@@ -718,12 +748,20 @@ static void parseSoapFault(const char* content, StringBuffer& msg)
 
 int CHttpClient::postRequest(ISoapMessage &req, ISoapMessage& resp)
 {
+    int ret = postRequest(req, resp, false);
+    if (ret == -2)
+        ret = postRequest(req, resp, true);
+    return ret;
+}
+
+int CHttpClient::postRequest(ISoapMessage &req, ISoapMessage& resp, bool forceNewConnection)
+{
     CSoapRequest& request = *(dynamic_cast<CSoapRequest*>(&req));
     const char* requeststr = request.get_text();
     CSoapResponse& response = *(dynamic_cast<CSoapResponse*>(&resp));
 
     StringBuffer errmsg;
-    if(connect(errmsg) < 0 || !m_socket)
+    if (connect(errmsg, forceNewConnection) < 0 || !m_socket)
     {
         response.set_status(SOAP_CONNECTION_ERROR);
         response.set_err(errmsg);
@@ -799,7 +837,9 @@ int CHttpClient::postRequest(ISoapMessage &req, ISoapMessage& resp)
 
     if (m_readTimeoutSecs)
         httpresponse->setTimeOut(m_readTimeoutSecs);
-    httpresponse->receive(true, me);
+    int ret = httpresponse->receive(true, me);
+    if (ret < 0 && m_isPersistentSocket && httpresponse->getPeerClosed())
+        return -2;
 
 #ifdef COOKIE_HANDLING
     if(m_context)
