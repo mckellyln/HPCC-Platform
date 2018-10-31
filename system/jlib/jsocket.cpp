@@ -103,6 +103,8 @@
 //#define EPOLLTRACE
 #endif
 
+#define SOCKTRACE // mck
+
 #ifdef _TESTING
 #define _TRACE
 #endif
@@ -469,10 +471,13 @@ private:
             STATS.activesockets--;
     #ifdef SOCKTRACE
             PROGLOG("SOCKTRACE: Closing socket %x %d (%p)", s, s, this);
+            if (tracename && *tracename)
+                PROGLOG("SOCKTRACE: closesock socket info: %s", tracename); // mck
     #endif
     #ifdef _WIN32
             return ::closesocket(s);
     #else
+            ::shutdown(s, SHUT_WR); // mck
             return ::close(s);
     #endif
         }
@@ -1013,6 +1018,9 @@ ISocket* CSocket::accept(bool allowcancel)
 
         if (newsock!=INVALID_SOCKET) {
             if ((sock==INVALID_SOCKET)||(accept_cancel_state==accept_cancel_pending)) {
+    #ifdef SOCKTRACE // mck
+                PROGLOG("SOCKTRACE: closing socket (sock went invalid) %x %d", newsock, newsock);
+    #endif // mck
                 ::close(newsock);
                 newsock=INVALID_SOCKET;
             }
@@ -1483,6 +1491,10 @@ void CSocket::setTraceName(const char * prefix, const char * name)
 
     free(tracename);
     tracename = peer.detach();
+# ifdef SOCKTRACE
+    if (tracename && *tracename)
+        PROGLOG("SOCKTRACE: socket info: %s", tracename); // mck
+# endif
 #endif
 }
 
@@ -2442,6 +2454,8 @@ void CSocket::shutdown(unsigned mode)
         state = ss_shutdown;
 #ifdef SOCKTRACE
         PROGLOG("SOCKTRACE: shutdown(%d) socket %x %d (%p)", mode, sock, sock, this);
+        if (tracename && *tracename)
+            PROGLOG("SOCKTRACE: shutdown socket info: %s", tracename); // mck
 #endif
         int rc = ::shutdown(sock, mode);
         if (rc != 0) {

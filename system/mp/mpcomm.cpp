@@ -1464,6 +1464,11 @@ public:
             // try and mop up all data on socket 
             
             size32_t sizeavail = sock->avail_read(); 
+            // mck - try again
+            if (sizeavail==0) {
+                Sleep(10);
+                sizeavail = sock->avail_read();
+            }
             if (sizeavail==0) {
                 // graceful close
                 Linked<CMPChannel> pc;
@@ -1477,7 +1482,7 @@ public:
                 if (pc) 
                 {
 #ifdef _TRACELINKCLOSED
-                    LOG(MCdebugInfo(100), unknownJob, "CMPPacketReader::notifySelected() about to close socket, mode = 0x%x", selected);
+                    LOG(MCdebugInfo(100), unknownJob, "CMPPacketReader::notifySelected() about to close socket %d, mode = 0x%x", sock->OShandle(), selected);
 #endif
                     pc->closeSocket(false, true);
                 }

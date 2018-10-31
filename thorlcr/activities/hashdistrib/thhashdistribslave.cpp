@@ -46,6 +46,9 @@
 //#define TRACE_MP
 #endif
 
+#define FULL_TRACE // mck
+#define TRACE_MP // mck
+
 //--------------------------------------------------------------------------------------------
 // HashDistributeSlaveActivity
 //

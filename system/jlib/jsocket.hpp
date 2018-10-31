@@ -30,7 +30,7 @@
 #include "jexcept.hpp"
 #include "jthread.hpp"
 
-#if 0 // spurious mplink closed tracing info
+#if 1 // spurious mplink closed tracing info mck
 # define _TRACELINKCLOSED
 #endif
 
