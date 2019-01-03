@@ -1947,11 +1947,13 @@ class CLazyFileIO : public CInterface
     IFileIO *getFileIO()
     {
         CriticalBlock b(crit);
+        DBGLOG("mck - CLazyFileIO::getFileIO(), iFileIO = %p, this = %p", iFileIO, this);
         return iFileIO.getLink();
     }
     IFileIO *getClearFileIO()
     {
         CriticalBlock b(crit);
+        DBGLOG("mck - CLazyFileIO::getClearFileIO(), iFileIO = %p, this = %p", iFileIO, this);
         return iFileIO.getClear();
     }
 public:
@@ -1965,9 +1967,11 @@ public:
     const char *queryFindString() const { return filename.get(); } // for string HT
     void close()
     {
+        DBGLOG("mck - CLazyFileIO::close(), iFileIO = %p, this = %p", iFileIO, this);
         Owned<IFileIO> openiFileIO = getClearFileIO();
         if (openiFileIO)
         {
+            DBGLOG("mck - CLazyFileIO::close() about to call openFileIO->close()");
             openiFileIO->close();
             mergeStats(fileStats, openiFileIO);
         }
@@ -1991,6 +1995,7 @@ public:
 class CFileCache : public CInterface, implements IThorFileCache
 {
     OwningStringSuperHashTableOf<CLazyFileIO> files;
+    // StringSuperHashTableOf<CLazyFileIO> files;
     CICopyArrayOf<CLazyFileIO> openFiles;
     unsigned limit, purgeN;
     CriticalSection crit;
@@ -2011,6 +2016,7 @@ class CFileCache : public CInterface, implements IThorFileCache
 
         ~CDelayedFileWapper()
         {
+            DBGLOG("mck - ~CDelayedFileWapper() dtor");
             cache.remove(lFile->queryFindString());
         }
         // IDelayedFile impl.
@@ -2053,6 +2059,7 @@ class CFileCache : public CInterface, implements IThorFileCache
         }
         virtual void close() override
         {
+            DBGLOG("mck - CDelayedFileWapper::close() about to call lFile->close()");
             lFile->close();
         }
         virtual unsigned __int64 getStatistic(StatisticKind kind) override
@@ -2063,12 +2070,14 @@ class CFileCache : public CInterface, implements IThorFileCache
 
     void purgeOldest()
     {
+        DBGLOG("mck - purgeOldest() %d", openFiles.ordinality());
         // will be ordered oldest first.
         unsigned count = 0;
         CICopyArrayOf<CLazyFileIO> toClose;
         ForEachItemIn(o, openFiles)
         {
             CLazyFileIO &lFile = openFiles.item(o);
+            DBGLOG("mck - purgeOldest: openFiles[%d] %s", o, lFile.queryFindString());
             toClose.append(lFile);
             if (++count>=purgeN) // crude for now, just remove oldest N
                 break;
@@ -2076,8 +2085,11 @@ class CFileCache : public CInterface, implements IThorFileCache
         ForEachItemIn(r, toClose)
         {
             CLazyFileIO &lFile = toClose.item(r);
+            DBGLOG("mck - purgeOldest() about to call lFile->close()");
             lFile.close();
+            DBGLOG("mck - purge befor zapping lFile (%s) from openFiles %d", lFile.queryFindString(), openFiles.ordinality());
             openFiles.zap(lFile);
+            DBGLOG("mck - purge after zapping lFile (%s) from openFiles %d", lFile.queryFindString(), openFiles.ordinality());
         }
     }
     bool _remove(const char *filename)
@@ -2085,7 +2097,8 @@ class CFileCache : public CInterface, implements IThorFileCache
         Linked<CLazyFileIO> lFile = files.find(filename);
         bool ret = files.removeExact(lFile);
         if (!ret) return false;
-        openFiles.zap(*lFile.get());
+        DBGLOG("mck - _remove(%s)", lFile->queryFindString());
+        openFiles.zap(*lFile.getClear());
         return true;
     }
 public:
@@ -2097,24 +2110,35 @@ public:
         purgeN = globals->getPropInt("@fileCachePurgeN", 10);
         if (purgeN > limit) purgeN=limit; // why would it be, but JIC.
         PROGLOG("FileCache: limit = %d, purgeN = %d", limit, purgeN);
+        DBGLOG("mck - CFileCache() ctor");
+    }
+
+    virtual ~CFileCache()
+    {
+        DBGLOG("mck - ~CFileCache() dtor");
     }
 
     void opening(CLazyFileIO &lFile)
     {
         CriticalBlock b(crit);
+        DBGLOG("mck - CFileCache::opening(%s) %d", lFile.queryFindString(), openFiles.ordinality());
         if (openFiles.ordinality() >= limit)
         {
             purgeOldest(); // will close purgeN
             assertex(openFiles.ordinality() < limit);
         }
+        DBGLOG("mck - opening befor zapping lFile (%s) to openFiles %d", lFile.queryFindString(), openFiles.ordinality());
         openFiles.zap(lFile);
+        DBGLOG("mck - opening befor appending lFile (%s) to openFiles %d", lFile.queryFindString(), openFiles.ordinality());
         openFiles.append(lFile);
+        DBGLOG("mck - opening after appending lFile (%s) to openFiles %d", lFile.queryFindString(), openFiles.ordinality());
     }
 
 // IThorFileCache impl.
     virtual bool remove(const char *filename)
     {
         CriticalBlock b(crit);
+        DBGLOG("mck - CFileCache::remove()");
         return _remove(filename);
     }
     virtual IDelayedFile *lookup(CActivityBase &activity, const char *logicalFilename, IPartDescriptor &partDesc, IExpander *expander)
@@ -2124,13 +2148,17 @@ public:
         partDesc.getFilename(0, rfn);
         rfn.getPath(filename);
         CriticalBlock b(crit);
+        DBGLOG("mck - CFileCache::lookup()");
         Linked<CLazyFileIO> file = files.find(filename.str());
         if (!file)
         {
             Owned<IActivityReplicatedFile> repFile = createEnsurePrimaryPartFile(logicalFilename, &partDesc);
             bool compressed = partDesc.queryOwner().isCompressed();
             file.setown(new CLazyFileIO(*this, filename.str(), repFile.getClear(), compressed, expander));
+            DBGLOG("mck - adding new file (%s) to files", filename.str());
         }
+        else
+            DBGLOG("mck - found file (%s) in files", filename.str());
         files.replace(*LINK(file));
         return new CDelayedFileWapper(*this, activity, *file); // to avoid circular dependency and allow destruction to remove from cache
     }
@@ -2139,6 +2167,7 @@ public:
 IFileIO *CLazyFileIO::getOpenFileIO(CActivityBase &activity)
 {
     CriticalBlock b(crit);
+    DBGLOG("mck - CLazyFileIO::getOpenFileIO()");
     if (!iFileIO)
     {
         cache.opening(*this);
