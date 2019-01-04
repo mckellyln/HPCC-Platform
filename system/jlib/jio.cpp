@@ -150,6 +150,11 @@ extern jlib_decl size32_t checked_pread(int file, void *buffer, size32_t len, of
                 readNow = 0;
                 break;
             default:
+                if (errno == EBADF)
+                {
+                    DBGLOG("mck - checked_pread() %d EBADF", file);
+                    PrintStackReport();
+                }
                 if (attempts < ioRetryCount)
                 {
                     attempts++;

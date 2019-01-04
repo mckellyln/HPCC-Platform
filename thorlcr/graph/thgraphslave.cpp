@@ -1946,12 +1946,16 @@ class CLazyFileIO : public CInterface
 
     IFileIO *getFileIO()
     {
+        DBGLOG("mck - CLazyFileIO::getFileIO() waiting on b(crit)"); fflush(NULL);
         CriticalBlock b(crit);
+        DBGLOG("mck - CLazyFileIO::getFileIO() got b(crit)"); fflush(NULL);
         return iFileIO.getLink();
     }
     IFileIO *getClearFileIO()
     {
+        DBGLOG("mck - CLazyFileIO::getClearFileIO() waiting on b(crit)"); fflush(NULL);
         CriticalBlock b(crit);
+        DBGLOG("mck - CLazyFileIO::getClearFileIO() got b(crit)"); fflush(NULL);
         return iFileIO.getClear();
     }
 public:
@@ -1960,20 +1964,23 @@ public:
     CLazyFileIO(CFileCache &_cache, const char *_filename, IActivityReplicatedFile *_repFile, bool _compressed, IExpander *_expander)
         : cache(_cache), filename(_filename), repFile(_repFile), compressed(_compressed), expander(_expander), fileStats(diskLocalStatistics)
     {
+        DBGLOG("mck - CLazyFileIO() ctor");
     }
     IFileIO *getOpenFileIO(CActivityBase &activity);
     const char *queryFindString() const { return filename.get(); } // for string HT
     void close()
     {
+        DBGLOG("mck - CLazyFileIO::close()");
         Owned<IFileIO> openiFileIO = getClearFileIO();
         if (openiFileIO)
         {
-            openiFileIO->close();
+            // mck - openiFileIO->close();
             mergeStats(fileStats, openiFileIO);
         }
     }
     unsigned __int64 getStatistic(StatisticKind kind)
     {
+        DBGLOG("mck - CLazyFileIO::getStatistic()");
         switch (kind)
         {
         case StTimeDiskReadIO:
@@ -2007,62 +2014,76 @@ class CFileCache : public CInterface, implements IThorFileCache
     public:
         IMPLEMENT_IINTERFACE_USING(PARENT);
 
-        CDelayedFileWapper(CFileCache &_cache, CActivityBase &_activity, CLazyFileIO &_lFile) : cache(_cache), activity(_activity), lFile(&_lFile) { }
+        CDelayedFileWapper(CFileCache &_cache, CActivityBase &_activity, CLazyFileIO &_lFile) : cache(_cache), activity(_activity), lFile(&_lFile)
+        {
+            DBGLOG("mck - CDelayedFileWrapper() ctor");
+        }
 
         ~CDelayedFileWapper()
         {
+            DBGLOG("mck - ~CDelayedFileWrapper() dtor");
             cache.remove(lFile->queryFindString());
         }
         // IDelayedFile impl.
         virtual IMemoryMappedFile *getMappedFile() override { return nullptr; }
         virtual IFileIO *getFileIO() override
         {
+            DBGLOG("mck - CDelayedFileWrapper::getFileIO()");
             // NB: lFile needs an activity to open fileIO
             return lFile->getOpenFileIO(activity);
         }
         // IFileIO impl.
         virtual size32_t read(offset_t pos, size32_t len, void * data) override
         {
+            DBGLOG("mck - CDelayedFileWrapper::read()");
             Owned<IFileIO> iFileIO = lFile->getOpenFileIO(activity);
             return iFileIO->read(pos, len, data);
         }
         virtual offset_t size() override
         {
+            DBGLOG("mck - CDelayedFileWrapper::size()");
             Owned<IFileIO> iFileIO = lFile->getOpenFileIO(activity);
             return iFileIO->size();
         }
         virtual size32_t write(offset_t pos, size32_t len, const void * data) override
         {
+            DBGLOG("mck - CDelayedFileWrapper::write()");
             Owned<IFileIO> iFileIO = lFile->getOpenFileIO(activity);
             return iFileIO->write(pos, len, data);
         }
         virtual offset_t appendFile(IFile *file,offset_t pos=0,offset_t len=(offset_t)-1) override
         {
+            DBGLOG("mck - CDelayedFileWrapper::appendFile()");
             Owned<IFileIO> iFileIO = lFile->getOpenFileIO(activity);
             return iFileIO->appendFile(file, pos, len);
         }
         virtual void setSize(offset_t size) override
         {
+            DBGLOG("mck - CDelayedFileWrapper::size()");
             Owned<IFileIO> iFileIO = lFile->getOpenFileIO(activity);
             iFileIO->setSize(size);
         }
         virtual void flush() override
         {
+            DBGLOG("mck - CDelayedFileWrapper::flush()");
             Owned<IFileIO> iFileIO = lFile->getOpenFileIO(activity);
             iFileIO->flush();
         }
         virtual void close() override
         {
+            DBGLOG("mck - CDelayedFileWrapper::close()");
             lFile->close();
         }
         virtual unsigned __int64 getStatistic(StatisticKind kind) override
         {
+            DBGLOG("mck - CDelayedFileWrapper::getStatistic()");
             return lFile->getStatistic(kind);
         }
     };
 
     void purgeOldest()
     {
+        DBGLOG("mck - CFileCache::purgeOldest()");
         // will be ordered oldest first.
         unsigned count = 0;
         CICopyArrayOf<CLazyFileIO> toClose;
@@ -2082,10 +2103,12 @@ class CFileCache : public CInterface, implements IThorFileCache
     }
     bool _remove(const char *filename)
     {
+        DBGLOG("mck - CFileCache::_remove()");
         Linked<CLazyFileIO> lFile = files.find(filename);
         bool ret = files.removeExact(lFile);
         if (!ret) return false;
-        openFiles.zap(*lFile.getClear());
+        // mck - openFiles.zap(*lFile.getClear());
+        openFiles.zap(*lFile.get());
         return true;
     }
 public:
@@ -2101,7 +2124,9 @@ public:
 
     void opening(CLazyFileIO &lFile)
     {
+        DBGLOG("mck - CFileCache::opening() waiting on b(crit)"); fflush(NULL);
         CriticalBlock b(crit);
+        DBGLOG("mck - CFileCache::opening() got b(crit)"); fflush(NULL);
         if (openFiles.ordinality() >= limit)
         {
             purgeOldest(); // will close purgeN
@@ -2114,7 +2139,9 @@ public:
 // IThorFileCache impl.
     virtual bool remove(const char *filename)
     {
+        DBGLOG("mck - CFileCache::remove() waiting on b(crit)"); fflush(NULL);
         CriticalBlock b(crit);
+        DBGLOG("mck - CFileCache::remove() got b(crit)"); fflush(NULL);
         return _remove(filename);
     }
     virtual IDelayedFile *lookup(CActivityBase &activity, const char *logicalFilename, IPartDescriptor &partDesc, IExpander *expander)
@@ -2123,7 +2150,9 @@ public:
         RemoteFilename rfn;
         partDesc.getFilename(0, rfn);
         rfn.getPath(filename);
+        DBGLOG("mck - CFileCache::lookup() waiting on b(crit)"); fflush(NULL);
         CriticalBlock b(crit);
+        DBGLOG("mck - CFileCache::lookup() got b(crit)"); fflush(NULL);
         Linked<CLazyFileIO> file = files.find(filename.str());
         if (!file)
         {
@@ -2138,7 +2167,9 @@ public:
 ////
 IFileIO *CLazyFileIO::getOpenFileIO(CActivityBase &activity)
 {
+    DBGLOG("mck - CLazyFileIO::getOpenFileIO() waiting on b(crit)"); fflush(NULL);
     CriticalBlock b(crit);
+    DBGLOG("mck - CLazyFileIO::getOpenFileIO() got b(crit)"); fflush(NULL);
     if (!iFileIO)
     {
         cache.opening(*this);
