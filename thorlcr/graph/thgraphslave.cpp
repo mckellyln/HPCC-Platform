@@ -2085,7 +2085,7 @@ class CFileCache : public CInterface, implements IThorFileCache
         Linked<CLazyFileIO> lFile = files.find(filename);
         bool ret = files.removeExact(lFile);
         if (!ret) return false;
-        openFiles.zap(*lFile.get());
+        openFiles.zap(*lFile.getClear());
         return true;
     }
 public:
