@@ -2963,6 +2963,7 @@ bool getInterfaceIp(IpAddress &ip,const char *ifname)
 
 
 static StringAttr cachehostname;
+static StringAttr myhostname;
 static IpAddress cachehostip;
 static IpAddress localhostip;
 static CriticalSection hostnamesect;
@@ -2972,6 +2973,11 @@ const char * GetCachedHostName()
     CriticalBlock c(hostnamesect);
     if (!cachehostname.get())
     {
+        char temp[1024];
+        if (gethostname(temp, sizeof(temp))==0)
+            myhostname.set(temp);
+        else
+            myhostname.set("localhost");         // assume no NIC card
 #ifndef _WIN32
         IpAddress ip;
         const char *ifs = queryEnvironmentConf().queryProp("interface");
@@ -2987,7 +2993,6 @@ const char * GetCachedHostName()
             }
         }
 #endif
-        char temp[1024];
         if (gethostname(temp, sizeof(temp))==0)
             cachehostname.set(temp);                
         else
@@ -3174,6 +3179,21 @@ static bool decodeNumericIP(const char *text,unsigned *netaddr)
 
 static bool lookupHostAddress(const char *name,unsigned *netaddr)
 {
+    if (streq(name, "localhost"))
+    {
+        IpAddress ip;
+        ip.ipset(queryLocalIP());
+        ip.copyAddress(netaddr);
+        return true;
+    }
+    else if (streq(name, myhostname))
+    {
+        IpAddress ip;
+        ip.ipset(queryHostIP());
+        ip.copyAddress(netaddr);
+        return true;
+    }
+
     // if IP4only or using MS V6 can only resolve IPv4 using 
     static bool recursioncheck = false; // needed to stop error message recursing
     unsigned retry=10;
@@ -3318,6 +3338,11 @@ bool IpAddress::ipset(const char *text)
     }
     memset(&netaddr,0,sizeof(netaddr));
     return false;
+}
+
+void IpAddress::copyAddress(unsigned *other)
+{
+    memcpy(other, &netaddr, sizeof(netaddr));
 }
 
 inline char * addbyte(char *s,byte b)

@@ -7086,6 +7086,7 @@ public:
                 Owned<IPropertyTreeIterator> pe2 = pt->getElements("Node");
                 ForEach(*pe2)
                 {
+                    DBGLOG("mck - pe2->query().queryProp(\"@ip\") = %s", pe2->query().queryProp("@ip"));
                     SocketEndpoint ep(pe2->query().queryProp("@ip"));
                     epa.append(ep);
                 }
@@ -9213,7 +9214,9 @@ class CInitGroups
             for (;;) {
                 const char *oldIp = oldIter->query().queryProp("@ip");
                 const char *newIp = newIter->query().queryProp("@ip");
-                if (!streq(oldIp, newIp))
+                IpAddress oip(oldIp);
+                IpAddress nip(newIp);
+                if (!nip.ipequals(oip))
                     return false;
                 if (!oldIter->next() || !newIter->next())
                     break;
@@ -9375,7 +9378,11 @@ class CInitGroups
         ForEach(*iter) {
             iter->query().endpoint().getIpText(str.clear());
             IPropertyTree *n = createPTree("Node");
-            n->setProp("@ip",str.str());
+
+            // if ip is this host, change to hostname ...
+            // n->setProp("@ip",str.str());
+            n->setProp("@ip", "hal9009");
+
             cluster->addPropTree("Node", n);
         }
         return cluster.getClear();
@@ -9735,6 +9742,7 @@ static IGroup *getClusterNodeGroup(const char *clusterName, const char *type, bo
     IPropertyTree &cluster = *conn->queryRoot();
     StringBuffer nodeGroupName;
     getClusterGroupName(cluster, nodeGroupName);
+    DBGLOG("mck - nodeGroupName = %s  clusterName = %s", nodeGroupName.str(), clusterName);
     if (0 == nodeGroupName.length())
         throwUnexpected();
 

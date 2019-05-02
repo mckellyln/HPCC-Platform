@@ -102,6 +102,7 @@ public:
 
     size32_t getNetAddress(size32_t maxsz,void *dst) const;     // for internal use - returns 0 if address doesn't fit
     void setNetAddress(size32_t sz,const void *src);            // for internal use
+    void copyAddress(unsigned *other);                          // for internal use
 
     inline bool operator == ( const IpAddress & other) const { return ipequals(other); }
     inline IpAddress & operator = ( const IpAddress &other )

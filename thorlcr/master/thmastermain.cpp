@@ -533,6 +533,8 @@ int main( int argc, char *argv[]  )
         return 0; // no recycle
     }
 
+    DBGLOG("mck - daliServer = %s", daliServer.str());
+
     SocketEndpoint thorEp;
     const char *master = globals->queryProp("@MASTER");
     if (master)
@@ -542,6 +544,8 @@ int main( int argc, char *argv[]  )
     }
     else
         thorEp.setLocalHost(0);
+
+    DBGLOG("mck - master = %s", master);
 
     setMasterPortBase(thorEp.port); // both same
     thorEp.port = getMasterPortBase();
