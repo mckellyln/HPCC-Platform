@@ -2896,25 +2896,30 @@ private:
         if (!group)
             throw MakeStringException(0, "Unknown cluster %s while writing file %s",
                     cluster, dFile->queryLogicalName());
-        if (group->isMember())
+        rank_t r = group->rank();
+        if (RANK_NULL != r)
         {
+            dbgassertex(r == myNodeIndex); // must be same
             if (localCluster)
                 throw MakeStringException(0, "Cluster %s occupies node already specified while writing file %s",
                         cluster, dFile->queryLogicalName());
+            StringBuffer clusterName(cluster);
             SocketEndpointArray eps;
-            SocketEndpoint me(0, getNodeAddress(myNodeIndex));
+            SocketEndpoint me(0, getNodeAddress(myNodeIndex)); // NB: should be same as group->queryNode(r).endpoint()
             eps.append(me);
             if (getNumNodes() > 1)
             {
                 unsigned buddy = myNodeIndex+1;
                 if (buddy >= getNumNodes())
                     buddy = 0;
-                SocketEndpoint buddyNode(0, getNodeAddress(buddy));
+                SocketEndpoint buddyNode(0, getNodeAddress(buddy)); // NB: should be same as group->queryNode(buddy).endpoint()
                 eps.append(buddyNode);
+                clusterName.appendf("[%u,%u]", myNodeIndex+1, buddy+1); // NB: 1 based
             }
+            else
+                clusterName.appendf("[%u]", myNodeIndex+1); // NB: 1 based
             localCluster.setown(createIGroup(eps));
-            StringBuffer clusterName;
-            localClusterName.set(eps.getText(clusterName));
+            localClusterName.set(clusterName);
         }
         else
         {

@@ -153,7 +153,8 @@ public:
         port = other.port;
         return *this;
     }
-	bool operator == (const SocketEndpoint &other) const { return equals(other); }
+    bool operator == (const SocketEndpoint &other) const { return equals(other); }
+    bool operator != (const SocketEndpoint &other) const { return !equals(other); }
 
     unsigned hash(unsigned prev) const;
     

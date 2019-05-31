@@ -1733,21 +1733,18 @@ public:
     }
     void testMultiCluster()
     {
-        Owned<IGroup> grp1 = createIGroup("192.168.51.1-5");
-        Owned<IGroup> grp2 = createIGroup("192.168.16.1-5");
-        Owned<IGroup> grp3 = createIGroup("192.168.53.1-5");
-        queryNamedGroupStore().add("testgrp1",grp1);
-        queryNamedGroupStore().add("testgrp2",grp2);
-        queryNamedGroupStore().add("testgrp3",grp3);
+        queryNamedGroupStore().add("testgrp1", { "192.168.51.1-5" });
+        queryNamedGroupStore().add("testgrp2", { "192.168.16.1-5" });
+        queryNamedGroupStore().add("testgrp3", { "192.168.53.1-5" });
 
         Owned<IFileDescriptor> fdesc = createFileDescriptor();
         fdesc->setDefaultDir("/c$/thordata/test");
         fdesc->setPartMask("testfile1._$P$_of_$N$");
         fdesc->setNumParts(5);
         ClusterPartDiskMapSpec mapping;
-        fdesc->addCluster(grp1,mapping);
-        fdesc->addCluster(grp2,mapping);
-        fdesc->addCluster(grp3,mapping);
+        fdesc->addCluster("testgrp1", nullptr, mapping);
+        fdesc->addCluster("testgrp2", nullptr, mapping);
+        fdesc->addCluster("testgrp3", nullptr, mapping);
         removeLogical("test::testfile1", user);
         Owned<IDistributedFile> file = queryDistributedFileDirectory().createNew(fdesc);
         removeLogical("test::testfile1", user);

@@ -154,19 +154,21 @@ protected:
         }
         return info.getClear();
     }
-    bool doSwap(const char *oldip, const char *newip)
+    bool doSwap(const char *oldHost, const char *newHost)
     {
-        Owned<INode> newNode = createINode(newip);
-        Owned<INode> oldNode = createINode(oldip);
-        if (!group->isMember(oldNode)) {
-            ERRLOG("Node %s is not part of group %s", oldip, groupName.get());
+        Owned<INode> newNode = createINode(newHost);
+        Owned<INode> oldNode = createINode(oldHost);
+        if (!group->isMember(oldNode))
+        {
+            ERRLOG("Node %s is not part of group %s", oldHost, groupName.get());
             return false;
         }
-        if (group->isMember(newNode)) {
-            ERRLOG("Node %s is already part of group %s", newip, groupName.get());
+        if (group->isMember(newNode))
+        {
+            ERRLOG("Node %s is already part of group %s", newHost, groupName.get());
             return false;
         }
-        queryNamedGroupStore().swapNode(oldNode->endpoint(),newNode->endpoint());
+        queryNamedGroupStore().swapNode(oldHost, newHost);
         return true;
     }
     bool doSingleSwapNode(const char *oldip,const char *newip,unsigned nodenum,IPropertyTree *info,const char *timechecked)
@@ -530,11 +532,11 @@ public:
     }
 };
 
-bool swapNode(const char *cluster, const char *oldip, const char *newip)
+bool swapNode(const char *cluster, const char *oldHost, const char *newHost)
 {
-    PROGLOG("SWAPNODE(%s,%s,%s) starting",cluster,oldip,newip);
+    PROGLOG("SWAPNODE(%s,%s,%s) starting",cluster, oldHost, newHost);
     CSingleSwapNode swapNode(cluster);
-    return swapNode.swap(oldip, newip);
+    return swapNode.swap(oldHost, newHost);
 }
 
 
