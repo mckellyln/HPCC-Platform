@@ -33,16 +33,21 @@ include_directories (
          ./../../roxie/roxiemem 
          ./../../system/include 
          ./../../system/jlib 
+         ./../../system/aeron/aeron-client/src/main/cpp 
+         ./../../system/aeron/aeron-driver/src/main/c/
+         ./../../system/aeron/aeron-samples/src/main/cpp  # temporary
          ./../../roxie/ccd 
     )
 
-ADD_DEFINITIONS ( -D_CONSOLE )
+ADD_DEFINITIONS ( -D_CONSOLE -Wno-format-nonliteral)
 
 HPCC_ADD_EXECUTABLE ( udptransport ${SRCS} )
 #install ( TARGETS udptransport RUNTIME DESTINATION ${EXEC_DIR} )
 target_link_libraries ( udptransport 
          jlib
-         roxiemem 
+         roxiemem
+         aeron_client
+         aeron_driver
          udplib 
     )
 
