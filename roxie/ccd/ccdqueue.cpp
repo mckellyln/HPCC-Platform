@@ -2598,7 +2598,7 @@ class CLocalMessageCollator : implements ILocalMessageCollator, public CInterfac
     InterruptableSemaphore sem;
     QueueOf<IMessageResult, false> pending;
     CriticalSection crit;
-    Linked<IRowManager> rowManager;
+    Linked<IRowManager> rowManager; // MORE - this is not used - are we linking it just for its lifetime?
     Linked<ILocalReceiveManager> receiveManager;
     ruid_t id;
     unsigned totalBytesReceived;
@@ -2611,11 +2611,6 @@ public:
     virtual ruid_t queryRUID() const 
     {
         return id;
-    }
-
-    virtual bool add_package(DataBuffer *dataBuff)
-    {
-        throwUnexpected(); // internal use in udp layer...
     }
 
     virtual IMessageResult* getNextResult(unsigned time_out, bool &anyActivity)
@@ -2655,7 +2650,6 @@ class RoxieLocalReceiveManager : implements ILocalReceiveManager, public CInterf
     MapXToMyClass<ruid_t, ruid_t, ILocalMessageCollator> collators;
     CriticalSection crit;
     Owned<StringContextLogger> logctx;
-    Linked<IMessageCollator> defaultCollator;
 
 public:
     IMPLEMENT_IINTERFACE;
@@ -2665,7 +2659,7 @@ public:
 
     virtual IMessageCollator *createMessageCollator(IRowManager *manager, ruid_t ruid)
     {
-        IMessageCollator *collator = new CLocalMessageCollator(manager, ruid);
+        ILocalMessageCollator *collator = new CLocalMessageCollator(manager, ruid);
         CriticalBlock b(crit);
         collators.setValue(ruid, collator);
         return collator;
@@ -2678,19 +2672,13 @@ public:
         collators.setValue(id, NULL);
     }
 
-    virtual void setDefaultCollator(IMessageCollator *collator)
-    {
-        CriticalBlock b(crit);
-        defaultCollator.set(collator);
-    }
-
     virtual ILocalMessageCollator *lookupCollator(ruid_t id)
     {
         CriticalBlock b(crit);
-        IMessageCollator *ret = collators.getValue(id);
+        ILocalMessageCollator *ret = collators.getValue(id);
         if (!ret)
-            ret = defaultCollator;
-        return LINK(QUERYINTERFACE(ret, ILocalMessageCollator));
+            ret = collators.getValue(RUID_DISCARD);
+        return LINK(ret);
     }
 
 };
@@ -2899,7 +2887,6 @@ public:
         Owned<StringContextLogger> logctx = new StringContextLogger("PacketDiscarder");
         rowManager.setown(roxiemem::createRowManager(0, NULL, *logctx, NULL, false));
         mc.setown(ROQ->queryReceiveManager()->createMessageCollator(rowManager, RUID_DISCARD));
-        ROQ->queryReceiveManager()->setDefaultCollator(mc);
         while (!aborted)
         {
             bool anyActivity = false;
@@ -2942,7 +2929,6 @@ public:
                 // to avoid leaking partial unwanted packets, we clear out mc periodically...
                 ROQ->queryReceiveManager()->detachCollator(mc);
                 mc.setown(ROQ->queryReceiveManager()->createMessageCollator(rowManager, RUID_DISCARD));
-                ROQ->queryReceiveManager()->setDefaultCollator(mc);
             }
         }
         return 0;

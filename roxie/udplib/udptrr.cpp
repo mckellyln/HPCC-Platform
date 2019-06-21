@@ -26,6 +26,7 @@
 #include "udplib.hpp"
 #include "udptrr.hpp"
 #include "udptrs.hpp"
+#include "udpmsgpk.hpp"
 #include "roxiemem.hpp"
 #include "roxie.hpp"
 
@@ -627,11 +628,9 @@ class CReceiveManager : implements IReceiveManager, public CInterface
 
     bool running;
 
-    typedef std::map<ruid_t, IMessageCollator*> uid_map;
-
-    Linked<IMessageCollator> defaultMessageCollator;
-    uid_map         collators; // MORE - more sensible to use a jlib mapping I would have thought
-    SpinLock collatorsLock; // protects access to collators map and defaultMessageCollator (note that defaultMessageCollator is not just set at startup)
+    typedef std::map<ruid_t, CMessageCollator*> uid_map;
+    uid_map         collators;
+    SpinLock collatorsLock; // protects access to collators map
 
 public:
     IMPLEMENT_IINTERFACE;
@@ -688,13 +687,6 @@ public:
         msgColl->Release();
     }
 
-    virtual void setDefaultCollator(IMessageCollator *msgColl)
-    {
-        if (udpTraceLevel>=5) DBGLOG("UdpReceiver: setDefaultCollator");
-        SpinBlock b(collatorsLock);
-        defaultMessageCollator.set(msgColl);
-    }
-
     void collatePackets()
     {
         unsigned lastDiscardedMsgSeq = 0;
@@ -713,7 +705,7 @@ public:
             DBGLOG("UdpReceiver: CPacketCollator - unQed packet - ruid=" RUIDF " id=0x%.8X mseq=%u pkseq=0x%.8X len=%d node=%u",
                 pktHdr->ruid, pktHdr->msgId, pktHdr->msgSeq, pktHdr->pktSeq, pktHdr->length, pktHdr->nodeIndex);
 
-        Linked <IMessageCollator> msgColl;
+        Linked <CMessageCollator> msgColl;
         bool isDefault = false;
         {
             SpinBlock b(collatorsLock);
@@ -722,7 +714,7 @@ public:
                 msgColl.set(collators[pktHdr->ruid]);
                 if (!msgColl)
                 {
-                    msgColl.set(defaultMessageCollator); // MORE - if we get a header, we can send an abort.
+                    msgColl.set(collators[RUID_DISCARD]); // MORE - if we get a header, we can send an abort.
                     isDefault = true;
                 }
             }
@@ -763,7 +755,7 @@ public:
 
     virtual IMessageCollator *createMessageCollator(IRowManager *rowManager, ruid_t ruid)
     {
-        IMessageCollator *msgColl = createCMessageCollator(rowManager, ruid);
+        CMessageCollator *msgColl = new CMessageCollator(rowManager, ruid);
         if (udpTraceLevel >= 2)
             DBGLOG("UdpReceiver: createMessageCollator %p %u", msgColl, ruid);
         {
