@@ -367,34 +367,6 @@ int testAeron(int argc, char **argv)
 }
 
 
-
-void testAeronX()
-{
-    aeron::Context context;
-    context.newPublicationHandler(
-        [](const std::string& channel, std::int32_t streamId, std::int32_t sessionId, std::int64_t correlationId)
-        {
-            std::cout << "Publication: " << channel << " " << correlationId << ":" << streamId << ":" << sessionId << std::endl;
-        });
-    context.newSubscriptionHandler(
-        [](const std::string& channel, std::int32_t streamId, std::int64_t correlationId)
-        {
-            std::cout << "Subscription: " << channel << " " << correlationId << ":" << streamId << std::endl;
-        });
-    context.availableImageHandler([](aeron::Image &image)
-        {
-            std::cout << "Available image correlationId=" << image.correlationId() << " sessionId=" << image.sessionId();
-            std::cout << " at position=" << image.position() << " from " << image.sourceIdentity() << std::endl;
-        });
-    context.unavailableImageHandler([](aeron::Image &image)
-        {
-            std::cout << "Unavailable image on correlationId=" << image.correlationId() << " sessionId=" << image.sessionId();
-            std::cout << " at position=" << image.position() << std::endl;
-        });
-
-    aeron::Aeron aeron(context);
-}
-
 void usage()
 {
     printf("USAGE: uttest [options] iprange\n");
@@ -1038,13 +1010,14 @@ int startAeronDriver()
 int main(int argc, char * argv[] ) 
 {
     InitModuleObjects();
+    /*
     std::thread driverThread([]()
     {
         startAeronDriver();
     });
     started.wait();
     testAeron(argc, argv);
-    exit(0);
+    exit(0);*/
     if (argc < 2)
         usage();
     strdup("Make sure leak checking is working");
