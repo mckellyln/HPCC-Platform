@@ -2515,7 +2515,7 @@ public:
                 buf[1] = isLocal;
                 strcpy(buf+2, lfn.get());
                 output->putBuffer(buf, len, true);
-                output->flush(true);
+                output->flush();
                 output.clear();
                 if (callback->wait(callbackTimeout))
                 {

@@ -43,6 +43,9 @@ bool udpSnifferEnabled = true;
 using roxiemem::DataBuffer;
 // MORE - why use DataBuffers on output side?? We could use zeroCopy techniques if we had a dedicated memory area.
 
+class CSendManager;
+IMessagePacker *createMessagePacker(ruid_t ruid, unsigned msgId, const void *messageHeader, unsigned headerSize, CSendManager &_parent, unsigned _destNode, unsigned _sourceNode, unsigned _msgSeq, unsigned _queue);
+
 class UdpReceiverEntry 
 {
     queue_t *output_queue;
@@ -841,7 +844,7 @@ ISendManager *createSendManager(int server_flow_port, int data_port, int client_
 
 class CMessagePacker : implements IMessagePacker, public CInterface
 {
-    ISendManager   &parent;
+    CSendManager   &parent;
     unsigned        destNodeIndex;
     UdpPacketHeader package_header;
     DataBuffer     *part_buffer;
@@ -858,7 +861,7 @@ class CMessagePacker : implements IMessagePacker, public CInterface
 public:
     IMPLEMENT_IINTERFACE;
 
-    CMessagePacker(ruid_t ruid, unsigned msgId, const void *messageHeader, unsigned headerSize, ISendManager &_parent, unsigned _destNode, unsigned _sourceNode, unsigned _msgSeq, unsigned _queue)
+    CMessagePacker(ruid_t ruid, unsigned msgId, const void *messageHeader, unsigned headerSize, CSendManager &_parent, unsigned _destNode, unsigned _sourceNode, unsigned _msgSeq, unsigned _queue)
         : parent(_parent)
     {
         queue_number = _queue;
@@ -903,7 +906,7 @@ public:
         }
     }
 
-    virtual void *getBuffer(unsigned len, bool variable)
+    virtual void *getBuffer(unsigned len, bool variable) override
     {
         if (variable)
             len += sizeof(RecordLengthType);
@@ -938,7 +941,7 @@ public:
             return &part_buffer->data[data_used + sizeof(UdpPacketHeader)];
     }
 
-    virtual void putBuffer(const void *buf, unsigned len, bool variable)
+    virtual void putBuffer(const void *buf, unsigned len, bool variable) override
     {
         if (variable)
         {
@@ -976,13 +979,26 @@ public:
         }
     }
 
-    virtual void sendMetaInfo(const void *buf, unsigned len) {
+    virtual void sendMetaInfo(const void *buf, unsigned len) override {
         metaInfo.append(len, buf);
     }
 
-    virtual void flush(bool last_msg = false)
+    virtual void flush() override { flush(true); }
+
+    virtual bool dataQueued() override
     {
-        if (!last_message_done && last_msg)
+        return(parent.dataQueued(package_header.ruid, package_header.msgId, destNodeIndex));
+    }
+
+    virtual unsigned size() const override
+    {
+        return totalSize;
+    }
+private:
+
+    void flush(bool last_msg)
+    {
+        if (!last_message_done)
         {
             last_message_done = true;
             if (!part_buffer)
@@ -1035,19 +1051,11 @@ public:
         package_header.pktSeq++;
     }
 
-    virtual bool dataQueued()
-    {
-        return(parent.dataQueued(package_header.ruid, package_header.msgId, destNodeIndex));
-    }
 
-    virtual unsigned size() const
-    {
-        return totalSize;
-    }
 };
 
 
-IMessagePacker *createMessagePacker(ruid_t ruid, unsigned msgId, const void *messageHeader, unsigned headerSize, ISendManager &_parent, unsigned _destNode, unsigned _sourceNode, unsigned _msgSeq, unsigned _queue)
+IMessagePacker *createMessagePacker(ruid_t ruid, unsigned msgId, const void *messageHeader, unsigned headerSize, CSendManager &_parent, unsigned _destNode, unsigned _sourceNode, unsigned _msgSeq, unsigned _queue)
 {
     return new CMessagePacker(ruid, msgId, messageHeader, headerSize, _parent, _destNode, _sourceNode, _msgSeq, _queue);
 }

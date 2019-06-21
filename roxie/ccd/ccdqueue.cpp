@@ -747,7 +747,7 @@ void SlaveContextLogger::flush()
         }
         log.kill();
         if (anyOutput)
-            output->flush(true);
+            output->flush();
          output.clear();
     }
 }
@@ -947,7 +947,7 @@ void doPing(IRoxieQueryPacket *packet, const IRoxieContextLogger &logctx)
     void *ret = output->getBuffer(contextLength, false);
     memcpy(ret, data, contextLength);
     output->putBuffer(ret, contextLength, false);
-    output->flush(true);
+    output->flush();
 }
 
 //=================================================================================
@@ -1312,7 +1312,7 @@ public:
             void *ret = output->getBuffer(len+1, true);
             memcpy(ret, message.str(), len+1);
             output->putBuffer(ret, len+1, true);
-            output->flush(true);
+            output->flush();
             E->Release();
         }   
         catch (IException *EInE)
@@ -1491,7 +1491,7 @@ public:
                     busy = false; // Keep order - before setActivity below
                     setActivity(NULL);  // Ensures all stats are merged from child queries etc
                     logctx.flush();
-                    output->flush(true);
+                    output->flush();
                 }
 #ifdef TEST_SLAVE_FAILURE
             }
@@ -1717,7 +1717,7 @@ public:
                 void *ret = output->getBuffer(len+1, true);
                 memcpy(ret, message.str(), len+1);
                 output->putBuffer(ret, len+1, true);
-                output->flush(true);
+                output->flush();
             }   
             catch (IException *EInE)
             {
@@ -1974,11 +1974,13 @@ public:
 
 class RoxieSocketQueueManager : public RoxieReceiverBase
 {
-    unsigned maxPacketSize;
-    bool running;
+protected:
     Linked<ISendManager> sendManager;
     Linked<IReceiveManager> receiveManager;
+    Owned<RoxieThrottledPacketSender> throttledPacketSendManager;
     Owned<TokenBucket> bucket;
+    unsigned maxPacketSize = 0;
+    bool running = false;
 
     class ReceiverThread : public Thread
     {
@@ -1998,36 +2000,12 @@ class RoxieSocketQueueManager : public RoxieReceiverBase
     } readThread;
 
 public:
-    RoxieSocketQueueManager(unsigned snifferChannel, unsigned _numWorkers) : RoxieReceiverBase(_numWorkers), readThread(*this)
+    RoxieSocketQueueManager(unsigned _numWorkers) : RoxieReceiverBase(_numWorkers), readThread(*this)
     {
-        int udpQueueSize = topology->getPropInt("@udpQueueSize", UDP_QUEUE_SIZE);
-        int udpSendQueueSize = topology->getPropInt("@udpSendQueueSize", UDP_SEND_QUEUE_SIZE);
-        int udpMaxSlotsPerClient = topology->getPropInt("@udpMaxSlotsPerClient", 0x7fffffff);
         maxPacketSize = multicastSocket->get_max_send_size();
         if ((maxPacketSize==0)||(maxPacketSize>65535))
             maxPacketSize = 65535;
-        if (topology->getPropInt("@sendMaxRate", 0))
-        {
-            unsigned sendMaxRate = topology->getPropInt("@sendMaxRate");
-            unsigned sendMaxRatePeriod = topology->getPropInt("@sendMaxRatePeriod", 1);
-            bucket.setown(new TokenBucket(sendMaxRate, sendMaxRatePeriod, sendMaxRate));
-            throttledPacketSendManager.setown(new RoxieThrottledPacketSender(*bucket, maxPacketSize));
-        }
-
-        IpAddress snifferIp;
-        getChannelIp(snifferIp, snifferChannel);
-        if (udpMaxSlotsPerClient > udpQueueSize)
-            udpMaxSlotsPerClient = udpQueueSize;
-        unsigned serverFlowPort = topology->getPropInt("@serverFlowPort", CCD_SERVER_FLOW_PORT);
-        unsigned dataPort = topology->getPropInt("@dataPort", CCD_DATA_PORT);
-        unsigned clientFlowPort = topology->getPropInt("@clientFlowPort", CCD_CLIENT_FLOW_PORT);
-        unsigned snifferPort = topology->getPropInt("@snifferPort", CCD_SNIFFER_PORT);
-        receiveManager.setown(createReceiveManager(serverFlowPort, dataPort, clientFlowPort, snifferPort, snifferIp, udpQueueSize, udpMaxSlotsPerClient, myNodeIndex));
-        sendManager.setown(createSendManager(serverFlowPort, dataPort, clientFlowPort, snifferPort, snifferIp, udpSendQueueSize, fastLaneQueue ? 3 : 2, bucket, myNodeIndex));
-        running = false;
     }
-
-    Owned<RoxieThrottledPacketSender> throttledPacketSendManager;
 
     virtual void sendPacket(IRoxieQueryPacket *x, const IRoxieContextLogger &logctx)
     {
@@ -2256,7 +2234,7 @@ public:
                 {
                     RoxiePacketHeader newHeader(header, ROXIE_ALIVE);
                     Owned<IMessagePacker> output = ROQ->createOutputStream(newHeader, true, logctx);
-                    output->flush(true);
+                    output->flush();
                 }
 
                 // If it's a retry, look it up against already running, or output stream, or input queue
@@ -2434,6 +2412,48 @@ public:
     }
 };
 
+class RoxieUdpSocketQueueManager : public RoxieSocketQueueManager
+{
+public:
+    RoxieUdpSocketQueueManager(unsigned snifferChannel, unsigned _numWorkers) : RoxieSocketQueueManager(_numWorkers)
+    {
+        int udpQueueSize = topology->getPropInt("@udpQueueSize", UDP_QUEUE_SIZE);
+        int udpSendQueueSize = topology->getPropInt("@udpSendQueueSize", UDP_SEND_QUEUE_SIZE);
+        int udpMaxSlotsPerClient = topology->getPropInt("@udpMaxSlotsPerClient", 0x7fffffff);
+        if (topology->getPropInt("@sendMaxRate", 0))
+        {
+            unsigned sendMaxRate = topology->getPropInt("@sendMaxRate");
+            unsigned sendMaxRatePeriod = topology->getPropInt("@sendMaxRatePeriod", 1);
+            bucket.setown(new TokenBucket(sendMaxRate, sendMaxRatePeriod, sendMaxRate));
+            throttledPacketSendManager.setown(new RoxieThrottledPacketSender(*bucket, maxPacketSize));
+        }
+
+        IpAddress snifferIp;
+        getChannelIp(snifferIp, snifferChannel);
+        if (udpMaxSlotsPerClient > udpQueueSize)
+            udpMaxSlotsPerClient = udpQueueSize;
+        unsigned serverFlowPort = topology->getPropInt("@serverFlowPort", CCD_SERVER_FLOW_PORT);
+        unsigned dataPort = topology->getPropInt("@dataPort", CCD_DATA_PORT);
+        unsigned clientFlowPort = topology->getPropInt("@clientFlowPort", CCD_CLIENT_FLOW_PORT);
+        unsigned snifferPort = topology->getPropInt("@snifferPort", CCD_SNIFFER_PORT);
+        receiveManager.setown(createReceiveManager(serverFlowPort, dataPort, clientFlowPort, snifferPort, snifferIp, udpQueueSize, udpMaxSlotsPerClient, myNodeIndex));
+        sendManager.setown(createSendManager(serverFlowPort, dataPort, clientFlowPort, snifferPort, snifferIp, udpSendQueueSize, fastLaneQueue ? 3 : 2, bucket, myNodeIndex));
+    }
+
+};
+
+class RoxieAeronSocketQueueManager : public RoxieSocketQueueManager
+{
+public:
+    RoxieAeronSocketQueueManager(unsigned _numWorkers) : RoxieSocketQueueManager(_numWorkers)
+    {
+        receiveManager.setown(createAeronReceiveManager(myNodeIndex));
+        sendManager.setown(createAeronSendManager(myNodeIndex));
+    }
+
+};
+
+
 #ifdef _MSC_VER
 #pragma warning( pop )
 #endif
@@ -2469,9 +2489,9 @@ public:
         header.append(sizeof(RoxiePacketHeader), &_header);
     }
 
-    virtual void flush(bool last_message);
+    virtual void flush() override;
 
-    virtual void sendMetaInfo(const void *buf, unsigned len)
+    virtual void sendMetaInfo(const void *buf, unsigned len) override
     {
         meta.append(len, buf);
     }
@@ -2675,21 +2695,18 @@ public:
 
 };
 
-void LocalMessagePacker::flush(bool last_message)
+void LocalMessagePacker::flush()
 {
     data.setLength(lastput);
-    if (last_message)
+    Owned<ILocalMessageCollator> collator = rm->lookupCollator(id);
+    if (collator)
     {
-        Owned<ILocalMessageCollator> collator = rm->lookupCollator(id);
-        if (collator)
-        {
-            unsigned datalen = data.length();
-            unsigned metalen = meta.length();
-            unsigned headerlen = header.length();
-            collator->enqueueMessage(outOfBand, data.detach(), datalen, meta.detach(), metalen, header.detach(), headerlen);
-        }
-        // otherwise Roxie server is no longer interested and we can simply discard
+        unsigned datalen = data.length();
+        unsigned metalen = meta.length();
+        unsigned headerlen = header.length();
+        collator->enqueueMessage(outOfBand, data.detach(), datalen, meta.detach(), metalen, header.detach(), headerlen);
     }
+    // otherwise Roxie server is no longer interested and we can simply discard
 }
 
 CLocalMessageCollator::CLocalMessageCollator(IRowManager *_rowManager, ruid_t _ruid) 
@@ -2716,7 +2733,7 @@ class RoxieLocalQueueManager : public RoxieReceiverBase
     Linked<RoxieLocalReceiveManager> receiveManager;
 
 public:
-    RoxieLocalQueueManager(unsigned snifferChannel, unsigned _numWorkers) : RoxieReceiverBase(_numWorkers)
+    RoxieLocalQueueManager(unsigned _numWorkers) : RoxieReceiverBase(_numWorkers)
     {
         receiveManager.setown(new RoxieLocalReceiveManager);
     }
@@ -2748,7 +2765,7 @@ public:
                 // Send back an out-of-band immediately, to let Roxie server know that channel is still active
                 RoxiePacketHeader newHeader(header, ROXIE_ALIVE);
                 Owned<IMessagePacker> output = createOutputStream(newHeader, true, logctx);
-                output->flush(true);
+                output->flush();
                 return; // No point sending the retry in localSlave mode
             }
             RoxieQueue *targetQueue;
@@ -2846,9 +2863,11 @@ IRoxieOutputQueueManager *ROQ;
 extern IRoxieOutputQueueManager *createOutputQueueManager(unsigned snifferChannel, unsigned numWorkers)
 {
     if (localSlave)
-        return new RoxieLocalQueueManager(snifferChannel, numWorkers);
+        return new RoxieLocalQueueManager(numWorkers);
+    else if (true)
+        return new RoxieAeronSocketQueueManager(numWorkers);
     else
-        return new RoxieSocketQueueManager(snifferChannel, numWorkers);
+        return new RoxieUdpSocketQueueManager(snifferChannel, numWorkers);
 
 }
 

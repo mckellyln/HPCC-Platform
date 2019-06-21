@@ -190,7 +190,7 @@ int testAeron(int argc, char **argv)
     cp.addOption(CommandOption(optFrags,          1, 1, "limit           Fragment Count Limit."));
     cp.addOption(CommandOption(optWarmupMessages, 1, 1, "number          Number of Messages for warmup."));
 
-    signal (SIGINT, sigIntHandler);
+//    signal (SIGINT, sigIntHandler);
 
     try
     {
@@ -659,7 +659,7 @@ void testNxN()
                     DBGLOG("Sent %" I64F "d bytes total, rate = %.2f MB/s", sentTotal, (((double)sentTotal)/1048576.0)/((now-start)/1000.0));
                     last = now;
                 }
-                packers[dest]->flush(true);
+                packers[dest]->flush();
                 packers[dest]->Release();
                 packers[dest] = NULL;
                 sequences[dest]++;
@@ -677,7 +677,7 @@ void testNxN()
         for (unsigned i = 0; i < numNodes; i++)
         {
             if (packers[i])
-                packers[i]->flush(true);
+                packers[i]->flush();
         }
         DBGLOG("Node %d All Sent %" I64F "d bytes total, rate = %.2f MB/s", myIndex, sentTotal, (((double)sentTotal)/1048576.0)/((msTick()-start)/1000.0));
         while (!sendMgr->allDone())
@@ -979,6 +979,11 @@ int startAeronDriver()
     context->termination_hook_func = termination_hook;
     context->dirs_delete_on_start = true;
     context->warn_if_dirs_exist = false;
+    context->term_buffer_sparse_file = false;
+    context->mtu_length=16384;
+    context->socket_rcvbuf=2097152;
+    context->socket_sndbuf=2097152;
+    context->initial_window_length=2097152;
 
     if (aeron_driver_init(&driver, context) < 0)
     {
@@ -1010,17 +1015,10 @@ int startAeronDriver()
 int main(int argc, char * argv[] ) 
 {
     InitModuleObjects();
-    /*
-    std::thread driverThread([]()
-    {
-        startAeronDriver();
-    });
-    started.wait();
-    testAeron(argc, argv);
-    exit(0);*/
-    if (argc < 2)
-        usage();
-    strdup("Make sure leak checking is working");
+    //if (argc < 2)
+    //    usage();
+    bool startEmbeddedMediaDriver = true;
+/*    strdup("Make sure leak checking is working");
     queryStderrLogMsgHandler()->setMessageFields(MSGFIELD_time | MSGFIELD_thread | MSGFIELD_prefix);
 
     {
@@ -1166,7 +1164,17 @@ int main(int argc, char * argv[] )
             nodeIP.getIpText(ipstr.clear());
             printf("Node %u is %s\n", nodeIdx, ipstr.str());
         }
+    }*/
+    std::thread driverThread;
+    if (startEmbeddedMediaDriver)
+    {
+        driverThread = std::thread([]() { startAeronDriver(); });
+        started.wait();
     }
+
+    testAeron(argc, argv);
+    exit(0);
+
     if (doRawTest)
         rawSendTest();
     else if (doSortSimulator)
