@@ -2447,8 +2447,11 @@ class RoxieAeronSocketQueueManager : public RoxieSocketQueueManager
 public:
     RoxieAeronSocketQueueManager(unsigned _numWorkers) : RoxieSocketQueueManager(_numWorkers)
     {
-        receiveManager.setown(createAeronReceiveManager(myNodeIndex));
-        sendManager.setown(createAeronSendManager(myNodeIndex));
+        unsigned dataPort = topology->getPropInt("@dataPort", CCD_DATA_PORT);
+        bool useEmbeddedQueueManager = true; // MORE - add to topology
+        SocketEndpoint ep(dataPort, getNodeAddress(myNodeIndex));
+        receiveManager.setown(createAeronReceiveManager(ep, useEmbeddedQueueManager));
+        sendManager.setown(createAeronSendManager(dataPort));
     }
 
 };
@@ -2685,6 +2688,8 @@ public:
 
 void LocalMessagePacker::flush()
 {
+    // MORE - I think this means we don't send anything until whole message available in localSlave mode, which
+    // may not be optimal.
     data.setLength(lastput);
     Owned<ILocalMessageCollator> collator = rm->lookupCollator(id);
     if (collator)

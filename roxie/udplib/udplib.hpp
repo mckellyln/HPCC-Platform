@@ -101,7 +101,7 @@ interface ISendManager : extends IInterface
 extern UDPLIB_API IReceiveManager *createReceiveManager(int server_flow_port, int data_port, int client_flow_port, int sniffer_port, const IpAddress &sniffer_multicast_ip, int queue_size, unsigned maxSlotsPerSender, unsigned myNodeIndex);
 extern UDPLIB_API ISendManager *createSendManager(int server_flow_port, int data_port, int client_flow_port, int sniffer_port, const IpAddress &sniffer_multicast_ip, int queue_size_pr_server, int queues_pr_server, TokenBucket *rateLimiter, unsigned myNodeIndex);
 
-extern UDPLIB_API IReceiveManager *createAeronReceiveManager(unsigned myNodeIndex);
+extern UDPLIB_API IReceiveManager *createAeronReceiveManager(const SocketEndpoint &ep, bool useEmbeddedMediaDriver);
 extern UDPLIB_API ISendManager *createAeronSendManager(unsigned myNodeIndex);
 
 extern UDPLIB_API const IpAddress &getNodeAddress(unsigned index);

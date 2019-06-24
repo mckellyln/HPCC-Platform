@@ -112,6 +112,14 @@ public:
 
 };
 
+struct IpComparator
+{
+    bool operator()(const IpAddress &a, const IpAddress &b) const
+    {
+        return a.ipequals(b);
+    }
+};
+
 class jlib_decl IpAddressArray : public StructArrayOf<IpAddress>
 { 
 public:
