@@ -536,6 +536,7 @@ IMessagePacker *CRoxieAeronSendManager::createMessagePacker(ruid_t id, unsigned 
             StringBuffer channel("aeron:udp?endpoint=");
             dest.getIpText(channel);
             channel.append(':').append(dataPort);
+            DBGLOG("%p Creating publication to channel %s for queue %d", this, channel.str(), queue);
             std::int64_t id = aeron->addPublication(channel.str(), queue);
             publication = aeron->findPublication(id);
             // wait for the publication to be valid

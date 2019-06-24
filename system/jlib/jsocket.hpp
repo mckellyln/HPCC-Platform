@@ -116,7 +116,8 @@ struct IpComparator
 {
     bool operator()(const IpAddress &a, const IpAddress &b) const
     {
-        return a.ipequals(b);
+        // return true if the first argument goes before the second argument, and false otherwise
+        return a.ipcompare(b) < 0;
     }
 };
 
