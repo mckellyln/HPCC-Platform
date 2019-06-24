@@ -2857,7 +2857,7 @@ extern IRoxieOutputQueueManager *createOutputQueueManager(unsigned snifferChanne
 {
     if (localSlave)
         return new RoxieLocalQueueManager(numWorkers);
-    else if (true)
+    else if (false)
         return new RoxieAeronSocketQueueManager(numWorkers);
     else
         return new RoxieUdpSocketQueueManager(snifferChannel, numWorkers);
