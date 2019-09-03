@@ -233,6 +233,10 @@ void disconnectLogMsgListenerFromDali()
 
 IPropertyTree *findDaliProcess(IPropertyTree *env, const SocketEndpoint &dali)
 {
+    StringBuffer ip1;
+    dali.getIpText(ip1.clear());
+    DBGLOG("mck - findDaliProcess() dali = <%s>", ip1.str());
+
     Owned<IPropertyTreeIterator> dalis = env->getElements("Software/DaliServerProcess");
     ForEach(*dalis)
     {
@@ -246,6 +250,9 @@ IPropertyTree *findDaliProcess(IPropertyTree *env, const SocketEndpoint &dali)
             if (!port)
                 port = DALI_SERVER_PORT;
             SocketEndpoint daliep(inst->queryProp("@netAddress"),port);
+            StringBuffer ip2;
+            daliep.getIpText(ip2.clear());
+            DBGLOG("mck - findDaliProcess() instance daliep = <%s>", ip2.str());
             if (dali.equals(daliep))
                 return cur;;
         }

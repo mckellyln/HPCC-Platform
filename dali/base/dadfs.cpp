@@ -10003,6 +10003,25 @@ static IGroup *getClusterNodeGroup(const char *clusterName, const char *type, bo
     Owned<IGroup> nodeGroup = queryNamedGroupStore().lookup(nodeGroupName);
     CInitGroups init(timems);
     Owned<IGroup> expandedClusterGroup = init.getGroupFromCluster(type, cluster, true);
+
+#if 1 // mck
+    SocketEndpointArray cgepa;
+    expandedClusterGroup->getSocketEndpoints(cgepa);
+    ForEachItemIn(i1,cgepa) {
+        StringBuffer ip1;
+        cgepa.element(i1).getIpText(ip1);
+        DBGLOG("mck - cpegq(%s)", ip1.str());
+    }
+
+    SocketEndpointArray ngepa;
+    nodeGroup->getSocketEndpoints(ngepa);
+    ForEachItemIn(i2,ngepa) {
+        StringBuffer ip2;
+        ngepa.element(i2).getIpText(ip2);
+        DBGLOG("mck - ngegq(%s)", ip2.str());
+    }
+#endif // mck
+
     if (!expandedClusterGroup)
         throwStringExceptionV(0, "Failed to get group for '%s' cluster '%s'", type, clusterName);
     if (!expandedClusterGroup->equals(nodeGroup))
