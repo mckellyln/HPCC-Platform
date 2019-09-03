@@ -42,6 +42,9 @@
 #include "mputil.hpp"
 #include "mplog.hpp"
 
+#include <sys/syscall.h>
+static __attribute__((unused)) pid_t gettid( void ) { return syscall( __NR_gettid ); }
+
 #ifdef _MSC_VER
 #pragma warning (disable : 4355)
 #endif
@@ -693,6 +696,18 @@ void traceSlowReadTms(const char *msg, ISocket *sock, void *dst, size32_t minSiz
         try
         {
             sock->readtms(dst, minSize, maxSize, sizeRead, intervalTimeoutMs);
+
+            // =============================
+            char tfile[256];
+            sprintf(tfile, "/tmp/mpdbg%u-%u.log", getpid(), gettid());
+            FILE *fp = fopen(tfile, "a");
+            if (fp)
+            {
+                fprintf(fp, "mck - traceSlowReadTms: just read in rd (sizeRead) value of %u\n", sizeRead);
+                fclose(fp);
+            }
+            // =============================
+
             break;
         }
         catch (IJSOCK_Exception *e)
@@ -903,6 +918,18 @@ protected: friend class CMPPacketReader;
                     try
                     {
                         newsock->readtms(replyMem, sizeof(rd), replyMb.capacity(), rd, CONNECT_TIMEOUT_INTERVAL);
+
+                        // =============================
+                        char tfile[256];
+                        sprintf(tfile, "/tmp/mpdbg%u-%u.log", getpid(), gettid());
+                        FILE *fp = fopen(tfile, "a");
+                        if (fp)
+                        {
+                            fprintf(fp, "mck - connect: just read in rd (rd) value of %u\n", rd);
+                            fclose(fp);
+                        }
+                        // =============================
+
                     }
                     catch (IException *e)
                     {
@@ -958,6 +985,8 @@ protected: friend class CMPPacketReader;
 #ifdef _FULLTRACE
                     PROGLOG("MP: rd = %d", rd);
 #endif
+                    PROGLOG("MP: rd = %d", rd);
+
                     /* NB: legacy clients that don't handle the exception deserialization here
                      * will see reply as success, so no clean error,
                      * but will fail shortly afterwards since server connection is closed
@@ -971,6 +1000,19 @@ protected: friend class CMPPacketReader;
                         if (len)
                         {
                             exitException.setown(deserializeException(mb));
+
+                            // =============================
+                            StringBuffer s;
+                            char tfile[256];
+                            sprintf(tfile, "/tmp/mpdbg%u-%u.log", getpid(), gettid());
+                            FILE *fp = fopen(tfile, "a");
+                            if (fp)
+                            {
+                                fprintf(fp, "rd > sizeof(rd), rd contains: %s", exitException->errorMessage(s).str());
+                                fclose(fp);
+                            }
+                            // =============================
+
                             throw exitException.getLink();
                         }
                         break;
@@ -1784,6 +1826,20 @@ bool CMPChannel::attachSocket(ISocket *newsock,const SocketEndpoint &_remoteep,c
         }
     }
 
+    // =============================
+    if (confirm)
+    {
+        char tfile[256];
+        sprintf(tfile, "/tmp/mpdbg%u-%u.log", getpid(), gettid());
+        FILE *fp = fopen(tfile, "a");
+        if (fp)
+        {
+            fprintf(fp, "mck - attachSocket: about to write rd (confirm) value of %u\n", *confirm);
+            fclose(fp);
+        }
+    }
+    // =============================
+
     if (confirm)
         newsock->write(confirm,sizeof(*confirm)); // confirm while still in connectsect
 
@@ -2084,6 +2140,8 @@ int CMPConnectThread::run()
                 SocketEndpoint hostep;
                 ConnectHdr connectHdr;
                 bool legacyClient = false;
+
+                PROGLOG("mck - sizeof(connectHdr.id) = %lu sizeof(connectHdr) = %lu", sizeof(connectHdr.id), sizeof(connectHdr));
 
                 // NB: min size is ConnectHdr.id for legacy clients, can thus distinguish old from new
                 traceSlowReadTms("MP: initial accept packet from", sock, &connectHdr, sizeof(connectHdr.id), sizeof(connectHdr), rd, CONFIRM_TIMEOUT, CONFIRM_TIMEOUT_INTERVAL);
