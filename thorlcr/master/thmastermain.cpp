@@ -898,7 +898,19 @@ int main( int argc, char *argv[]  )
     PROGLOG("Thor closing down 5");
     stopPerformanceMonitor();
     disconnectLogMsgManagerFromDali();
+
+    // Remove sentinel file
+    try
+    {
+        removeSentinelFile(sentinelFile);
+    }
+    catch (IException *e)
+    {
+        e->Release();
+    }
+
     closeThorServerStatus();
+
     if (globals)
         globals->Release();
     PROGLOG("Thor closing down 4");

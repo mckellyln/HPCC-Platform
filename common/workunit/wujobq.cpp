@@ -1765,6 +1765,43 @@ public:
         return initiateconv.getClear();
     }
 
+    IConversation *attemptConversation(sQueueData &qd,IJobQueueItem *item,unsigned short &convPort,unsigned timeoutms)
+    {
+        CriticalBlock block(crit);
+        assertex(!initiateconv.get());
+        SocketEndpoint ep = item->queryEndpoint();
+        unsigned short port = (unsigned short)item->getPort();
+        initiateconv.setown(createSingletonSocketConnection(port));
+        if (!port)
+            item->setPort(initiateconv->setRandomPort(WUJOBQ_BASE_PORT,WUJOBQ_PORT_NUM));
+        convPort = item->getPort();
+        initiatewu.set(item->queryWUID());
+        enqueue(qd,item);
+        bool ok;
+        {
+            CriticalUnblock unblock(crit);
+            ok = initiateconv->accept(timeoutms);
+        }
+        if (!ok)
+            initiateconv.clear();
+        return initiateconv.getClear();
+    }
+
+    IConversation *continueConversation(unsigned short port, unsigned timeoutms)
+    {
+        CriticalBlock block(crit);
+        assertex(!initiateconv.get());
+        initiateconv.setown(createSingletonSocketConnection(port));
+        bool ok;
+        {
+            CriticalUnblock unblock(crit);
+            ok = initiateconv->accept(timeoutms);
+        }
+        if (!ok)
+            initiateconv.clear();
+        return initiateconv.getClear();
+    }
+
     IConversation *acceptConversation(IJobQueueItem *&retitem, unsigned prioritytransitiondelay,IDynamicPriority *maxp)
     {
         CriticalBlock block(crit);
@@ -1942,6 +1979,10 @@ public:
     IConversation *initiateConversation(IJobQueueItem *item,unsigned timeout)
     {
         return initiateConversation(*activeq,item,timeout);
+    }
+    IConversation *attemptConversation(IJobQueueItem *item,unsigned short &convPort,unsigned timeoutms)
+    {
+        return attemptConversation(*activeq,item,convPort,timeoutms);
     }
     void cancelInitiateConversation()
     {

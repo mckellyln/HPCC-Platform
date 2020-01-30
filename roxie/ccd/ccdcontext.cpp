@@ -2454,7 +2454,7 @@ protected:
 
             pollthread.start();
 
-            Owned<IConversation> conversation = jq->initiateConversation(item, INFINITE);
+            Owned<IConversation> conversation = jq->initiateConversation(item);
 
             pollthread.stop();
             pollthread.join();

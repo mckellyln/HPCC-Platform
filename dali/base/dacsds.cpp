@@ -1282,6 +1282,7 @@ CClientSDSManager::~CClientSDSManager()
         CRemoteConnection &conn = (CRemoteConnection &) iter.query();
         conn.setConnected(false);
     }
+    DBGLOG("mck - ~CClientSDSManager() dtor released all connections");
     ::Release(properties);
 }
 
@@ -1687,6 +1688,8 @@ void CClientSDSManager::changeMode(CRemoteConnection &connection, unsigned mode,
 #define MIN_MCONNECT_SVER "1.5"
 IRemoteConnections *CClientSDSManager::connect(IMultipleConnector *mConnect, SessionId id, unsigned timeout)
 {
+    DBGLOG("mck - CClientSDSManager::connect(mConnect), sessionId = %llx", id);
+
     CDaliVersion serverVersionNeeded(MIN_MCONNECT_SVER);
     if (queryDaliServerVersion().compare(serverVersionNeeded) < 0)
         throw MakeSDSException(SDSExcpt_VersionMismatch, "Multiple connect not supported by server versions prior to " MIN_MCONNECT_SVER);
@@ -1749,6 +1752,8 @@ IRemoteConnections *CClientSDSManager::connect(IMultipleConnector *mConnect, Ses
 
 IRemoteConnection *CClientSDSManager::connect(const char *xpath, SessionId id, unsigned mode, unsigned timeout)
 {
+    DBGLOG("mck - CClientSDSManager::connect(xpath=%s), sessionId = %llx", xpath, id);
+
     if (0 == id || id != myProcessSession())
         throw MakeSDSException(SDSExcpt_InvalidSessionId, ", connecting to %s, sessionid=%" I64F "x", xpath, id);
 
@@ -1782,6 +1787,7 @@ IRemoteConnection *CClientSDSManager::connect(const char *xpath, SessionId id, u
                 tree->deserializeRT(mb);
             }
             conn->setRoot(tree);
+            DBGLOG("mck - CClientSDSManager::connect(xpath=%s), sessionId = %llx connectionId = %llx about to replace connections", xpath, id, connId);
             connections.replace(*conn);
             break;
         }

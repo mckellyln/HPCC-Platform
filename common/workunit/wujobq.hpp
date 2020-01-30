@@ -125,6 +125,8 @@ interface IJobQueue: extends IJobQueueConst
 
 // conversations:
     virtual IConversation *initiateConversation(IJobQueueItem *item,unsigned timeoutms=INFINITE)=0; // does enqueue - take ownership of item
+    virtual IConversation *attemptConversation(IJobQueueItem *item,unsigned short &convPort,unsigned timeoutms)=0; // does enqueue - take ownership of item
+    virtual IConversation *continueConversation(unsigned short port, unsigned timeoutms=INFINITE)=0;
     virtual IConversation *acceptConversation(IJobQueueItem *&item,unsigned prioritytransitiondelay=0,IDynamicPriority *maxp=NULL)=0;  
                                                                         // does dequeue - returns queue item dequeued
     virtual void cancelInitiateConversation()=0;                        // cancels initiateConversation in progress

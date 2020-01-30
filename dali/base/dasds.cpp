@@ -3540,6 +3540,11 @@ public:
         CPendingLockBlock b(*this); // carefully placed, removePending can destroy this, therefore must be destroyed last
         {
             CHECKEDCRITICALBLOCK(crit, fakeCritTimeout);
+            if (!strncmp(xpath.str(), "/Locks/ThorStartLock", 20))
+            {
+                DBGLOG("mck - unlock connectionId %llx xpath %s", id, xpath.str());
+                PrintStackReport();
+            }
             LockData *ld = connectionInfo.getValue(id);
             if (ld)    // not necessarily any lock info for this connection
             {
@@ -4127,11 +4132,15 @@ void CSDSTransactionServer::processMessage(CMessageBuffer &mb)
                     mb.append((int)DAMP_SDSREPLY_OK);
                     mb.append(connectionId);
                     tree->serializeCutOffRT(mb, RTM_SUB & mode?FETCH_ENTIRE:tree->getPropBool("@fetchEntire")?FETCH_ENTIRE_COND : 0, 0, getExt);
+                    if (!strncmp(xpath.str(), "/Locks/ThorStartLock", 20))
+                        DBGLOG("mck - appear to have got lock sessionId %llx connectionId %llx xpath %s", id, connectionId, xpath.str());
                 }
                 else
                 {
                     mb.clear();
                     mb.append((int)DAMP_SDSREPLY_EMPTY);
+                    if (!strncmp(xpath.str(), "/Locks/ThorStartLock", 20))
+                        DBGLOG("mck - appear to not have lock sessionId %llx connectionId %llx xpath %s", id, connectionId, xpath.str());
                 }
                 break;
             }
@@ -7501,13 +7510,19 @@ void CCovenSDSManager::lock(CServerRemoteTree &tree, const char *xpath, Connecti
         IdPath idPath;
         lock = new CLock(lockTable, treeId, idPath, xpath, mode, connectionId, sessionId);
         lockTable.replace(*lock);
+        if (!strncmp(xpath, "/Locks/ThorStartLock", 20))
+            DBGLOG("mck - lock new connectionId %llx", connectionId);
     }
     else
     {
         Linked<CLock> tmp = lock; // keep it alive could be destroyed whilst blocked in call below.
         LockStatus result = establishLock(*lock, treeId, connectionId, sessionId, mode, timeout, callback);
+        if (!strncmp(xpath, "/Locks/ThorStartLock", 20))
+            DBGLOG("mck - lock exiting connectionId %llx", connectionId);
         if (result != LockSucceeded)
         {
+            if (!strncmp(xpath, "/Locks/ThorStartLock", 20))
+                DBGLOG("mck - lock failed connectionId %llx", connectionId);
             if (!queryConnection(connectionId)) return; // connection aborted.
             StringBuffer s;
             switch (result)
@@ -7822,6 +7837,7 @@ CServerConnection *CCovenSDSManager::getConnection(ConnectionId id)
 
 void CCovenSDSManager::disconnect(ConnectionId id, bool deleteRoot, Owned<CLCLockBlock> *lockBlock)
 {
+    static CriticalSection jake;
     Linked<CServerConnection> connection;
     { CHECKEDCRITICALBLOCK(cTableCrit, fakeCritTimeout);
         connection.set(queryConnection(id));
@@ -7866,6 +7882,7 @@ void CCovenSDSManager::disconnect(ConnectionId id, bool deleteRoot, Owned<CLCLoc
     {
         if (lockBlock)
         {
+            CriticalBlock b(jake);
             lockBlock->clear();
             lockBlock->setown(new CLCWriteLockBlock(dataRWLock, readWriteTimeout, __FILE__, __LINE__));
         }

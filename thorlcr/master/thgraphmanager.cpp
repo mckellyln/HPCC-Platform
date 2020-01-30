@@ -532,6 +532,9 @@ void CJobManager::run()
             }
         }
     }
+
+    bool ondemand = globals->getPropBool("@ondemand");
+
     bool jobQConnected = false;
     while (!stopped)
     {
@@ -683,6 +686,13 @@ void CJobManager::run()
         Owned<IConstWorkUnit> workunit;
         const char *wuid = item->queryWUID();
         bool allDone = false;
+
+        if (ondemand)
+        {
+            stopped = true;
+            setExitCode(TEC_Clean);
+        }
+
         try
         {
             factory.setown(getWorkUnitFactory());
