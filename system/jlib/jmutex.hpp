@@ -586,71 +586,120 @@ public:
 
 class jlib_decl ReadWriteLock
 {
-    bool lockRead(bool timed, unsigned timeout) { 
-                                cs.enter(); 
-                                if (writeLocks == 0) 
-                                {
-                                    readLocks++;
-                                    cs.leave();
-                                }
-                                else
-                                {
-                                    readWaiting++;
-                                    cs.leave();
-                                    if (timed)
-                                    {
-                                        if (!readSem.wait(timeout)) {
-                                            cs.enter(); 
-                                            if (!readSem.wait(0)) {
-                                                readWaiting--;
-                                                cs.leave();
-                                                return false;
-                                            }
-                                            cs.leave();
-                                        }
-                                    }
-                                    else
-                                        readSem.wait();
-                                    //NB: waiting and locks adjusted before the signal occurs.
-                                }
-                                return true;
-                            }
-    bool lockWrite(bool timed, unsigned timeout) { 
-                                cs.enter(); 
-                                if ((readLocks == 0) && (writeLocks == 0))
-                                {
-                                    writeLocks++;
-                                    cs.leave();
-                                }
-                                else
-                                {
-                                    writeWaiting++;
-                                    cs.leave();
-                                    if (timed)
-                                    {
-                                        if (!writeSem.wait(timeout)) {
-                                            cs.enter(); 
-                                            if (!writeSem.wait(0)) {
-                                                writeWaiting--;
-                                                cs.leave();
-                                                return false;
-                                            }
-                                            cs.leave();
-                                        }
-                                    }
-                                    else
-                                        writeSem.wait();
-                                    //NB: waiting and locks adjusted before the signal occurs.
-                                }
+    bool lockRead(bool timed, unsigned timeout)
+    {  
+        cs.enter(); 
+        if (writeLocks == 0) 
+        {
+            readLocks++;
+            cs.leave();
+        }
+        else
+        {
+            readWaiting++;
+            cs.leave();
+            if (timed)
+            {
+                if (!readSem.wait(timeout))
+                {
+                    cs.enter(); 
+                    if (!readSem.wait(0))
+                    {
+                        readWaiting--;
+                        cs.leave();
+                        return false;
+                    }
+                    cs.leave();
+                }
+            }
+            else
+                readSem.wait();
+            //NB: waiting and locks adjusted before the signal occurs.
+        }
+        return true;
+    }
+    bool lockWrite(bool timed, unsigned timeout)
+    {
+        cs.enter();
+        if ((readLocks == 0) && (writeLocks == 0))
+        {
+            writeLocks++;
+            cs.leave();
+        }
+        else
+        {
+            writeWaiting++;
+            cs.leave();
+            if (timed)
+            {
+                if (!writeSem.wait(timeout))
+                {
+                    cs.enter(); 
+                    if (!writeSem.wait(0))
+                    {
+                        writeWaiting--;
+                        cs.leave();
+                        return false;
+                    }
+                    cs.leave();
+                }
+            }
+            else
+                writeSem.wait();
+            //NB: waiting and locks adjusted before the signal occurs.
+        }
 #ifdef _DEBUG
-                                exclWriteOwner = GetCurrentThreadId();
+        exclWriteOwner = GetCurrentThreadId();
 #endif
-                                return true;
-                            }
+        return true;
+    }
+    bool changeToWrite(bool timed, unsigned timeout)
+    {
+        cs.enter();
+        if (writeLocks || (0 == readLocks))
+        {
+            cs.leave();
+            return false; // failed, changeToWrite must be called read locked, and not when already write locked
+        }
+
+        if (readLocks == 1)
+        {
+            readLocks--;
+            writeLocks++;
+            cs.leave();
+        }
+        else // readLocks>1
+        {
+            readToWriteWaiting++;
+            cs.leave();
+            if (timed)
+            {
+                if (!readToWriteSem.wait(timeout))
+                {
+                    cs.enter(); 
+                    if (!readToWriteSem.wait(0))
+                    {
+                        readToWriteWaiting--;
+                        cs.leave();
+                        return false;
+                    }
+                    cs.leave();
+                }
+            }
+            else
+                readToWriteSem.wait();
+            //NB: waiting and locks adjusted before the signal occurs.
+        }
+#ifdef _DEBUG
+        exclWriteOwner = GetCurrentThreadId();
+#endif
+        return true;
+    }
 public:
     ReadWriteLock()
     {
         readLocks = 0; writeLocks = 0; readWaiting = 0; writeWaiting = 0;
+        readToWriteWaiting = 0;
 #ifdef _DEBUG
         exclWriteOwner = 0;
 #endif
@@ -661,35 +710,74 @@ public:
     void lockWrite()        { lockWrite(false, 0); }
     bool lockRead(unsigned timeout) { return lockRead(true, timeout); }
     bool lockWrite(unsigned timeout) { return lockWrite(true, timeout); }
-    void unlock()           { 
-                                cs.enter(); 
-                                if (readLocks) readLocks--;
-                                else
-                                {
-                                    writeLocks--;
+    void changeToWrite()
+    {
+        changeToWrite(false, 0);
+    }
+    bool changeToWrite(unsigned timeout)
+    {
+        return changeToWrite(true, timeout);
+    }
+    bool changeToRead()
+    {
+        cs.enter();
+        if (!writeLocks)
+        {
+            cs.leave();
+            return false; // failed, changeToRead must be called when writeLocked
+        }
+        --writeLocks;
+        dbgassertex(!readLocks);
+        readLocks++;
+        cs.leave();
 #ifdef _DEBUG
-                                    exclWriteOwner = 0;
+        exclWriteOwner = 0;
 #endif
-                                }
-                                assertex(writeLocks == 0);
-                                if (readLocks == 0)
-                                {
-                                    if (readWaiting)
-                                    {
-                                        unsigned numWaiting = readWaiting;
-                                        readWaiting = 0;
-                                        readLocks += numWaiting;
-                                        readSem.signal(numWaiting);
-                                    }
-                                    else if (writeWaiting)
-                                    {
-                                        writeWaiting--;
-                                        writeLocks++;
-                                        writeSem.signal();
-                                    }
-                                }
-                                cs.leave();
-                            }
+        return true;
+    }
+    void unlock()
+    {
+        cs.enter(); 
+        if (readLocks)
+        {
+            readLocks--;
+            if (readToWriteWaiting && (1 == readLocks))
+            {
+                readToWriteWaiting--;
+                readLocks--;
+                writeLocks++;
+                readToWriteSem.signal();
+            }
+            else if (writeWaiting && (0 == readLocks))
+            {
+                writeWaiting--;
+                writeLocks++;
+                writeSem.signal();
+            }
+        }
+        else
+        {
+            writeLocks--;
+            dbgassertex(writeLocks == 0);
+            if (readWaiting)
+            {
+                unsigned numWaiting = readWaiting;
+                readWaiting = 0;
+                readLocks += numWaiting;
+                readSem.signal(numWaiting);
+            }
+            else if (writeWaiting)
+            {
+                writeWaiting--;
+                writeLocks++;
+                writeSem.signal();
+            }
+#ifdef _DEBUG
+            exclWriteOwner = 0;
+#endif
+        }
+        cs.leave();
+    }
     bool queryWriteLocked() { return (writeLocks != 0); }
     void unlockRead()       { unlock(); }
     void unlockWrite()      { unlock(); }
@@ -699,10 +787,12 @@ protected:
     CriticalSection     cs;
     Semaphore           readSem;
     Semaphore           writeSem;
+    Semaphore           readToWriteSem;
     unsigned            readLocks;
     unsigned            writeLocks;
     unsigned            readWaiting;
     unsigned            writeWaiting;
+    unsigned            readToWriteWaiting;
 #ifdef _DEBUG
     ThreadId            exclWriteOwner;
 #endif
