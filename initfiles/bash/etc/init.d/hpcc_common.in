@@ -422,10 +422,22 @@ start_dafilesrv() {
 function getUserLimits() {
     local flag=$1
     local name=$2
+    local lfile=""
+    if [[ $# -eq 3 ]]; then
+        lfile=$3
+    fi
     local myid=$(id -u 2>/dev/null)
     local rc=0
     if [[ "${myid}" = "0" ]] ; then
-        limit_user=$(su - ${user} -c "bash -c \"ulimit ${flag}\"" 2>/dev/null)
+        # try get limit_user from $lfile ...
+        if [[ -n "${lfile}" && -f "${lfile}" ]]; then
+            if [[ "${flag:1:1}" == "H" ]]; then
+                flag="-${flag:2:2}"
+            fi
+            limit_user=$(grep "\\${flag})" ${lfile} 2>/dev/null | awk '{print $NF}')
+        else
+            limit_user=$(su - ${user} -c "bash -c \"ulimit ${flag}\"" 2>/dev/null)
+        fi
         rc=$?
         if [[ $rc -ne 0 || -z "${limit_user}" ]] ; then
             limit_user=$(grep "${user}* hard* ${name}" /etc/security/limits.d/*.conf 2>/dev/null | tail -n 1 | awk '{print $4}')
@@ -518,6 +530,13 @@ startCmd() {
       MIN_Hr_rtprio="4"
       MIN_Hl_memlock="unlimited" )
 
+    local limfile=""
+    local myid=$(id -u 2>/dev/null)
+    if [[ "${myid}" == "0" && -n "${user}" && "${user}" != "root" ]] ; then
+        limfile="/tmp/limfile$$"
+        su - ${user} -c "bash -c \"ulimit -Ha\" 2>/dev/null" > ${limfile}
+    fi
+
     local i=0
     local rc=0
     for element in "${limits[@]}"; do
@@ -526,7 +545,7 @@ startCmd() {
         local name=${nam1##*_}
         local value=${element##*"="}
 
-        default_value=$(getUserLimits $flag $name)
+        default_value=$(getUserLimits $flag $name $limfile)
 
         new_value=$default_value
         if [[ "$default_value" == "-2" ]] ; then
@@ -551,6 +570,10 @@ startCmd() {
         i=$((i+1))
     done
 
+    if [[ -n "${limfile}" ]]; then
+        rm -f ${limfile} > /dev/null 2>&1
+    fi
+
     UMASK_ARG=""
     if [ -n "${umask}" ]; then
         UMASK_ARG="--umask ${umask}"
@@ -567,16 +590,33 @@ startCmd() {
         mkdir -p $lockPath >>/dev/null 2>&1
     fi
     chown -c $user:$group $lockPath >> /dev/null 2>&1
+
     lock ${lock}/${compName}/${compName}.lock
 
+    # Small window where a Thor ends but has not yet
+    # unlocked the lock file and we try to start it,
+    # so try a few more times before giving up ...
+    # Really need to use a true flock method here
     if [ $__lockCreated -eq 0 ]; then
-        log "Cannot create the lock file. File locked by subsystem"
-        log_failure_msg "Cannot create the lock file, File locked by subsystem"
-        return 3
+        local attempts=0
+        while [[ $attempts -lt 4 ]]; do
+            attempts=$((attempts+1))
+            sleep 1
+            lock ${lock}/${compName}/${compName}.lock
+            if [[ $__lockCreated -ne 0 ]]; then
+                break
+            fi
+        done
+        if [[ $__lockCreated -eq 0 ]]; then
+            log "Cannot create the lock file. File locked by subsystem"
+            log_failure_msg "Cannot create the lock file, File locked by subsystem"
+            return 3
+        fi
     fi
 
     eval $startcmd
 
+    initStarted=0
     while [[ ${WAITTIME} -gt 0 ]]; do
         WAITTIME=`expr ${WAITTIME} - 1`
         check_status ${PIDPATH} ${LOCKPATH} ${COMPPIDPATH} ${SENTINEL_CHECK}
@@ -584,7 +624,20 @@ startCmd() {
         if [[ ${RCSTART} -eq 0 ]]; then
             log_success_msg
             return 0;
-        elif [[ ${RCSTART} -ne 4 ]]; then
+        elif [[ ${RCSTART} -eq 4 ]]; then
+            checkPidExist $PIDPATH
+            local initRunning=$__pidExists
+            if [[ $initStarted -eq 0 && $initRunning -eq 1 ]]; then
+                initStarted=1
+            fi
+            if [[ $initStarted -eq 1 && $initRunning -eq 0 ]]; then
+                # init started then ended and never started comp ...
+                log "${compName} failed to start cleanly"
+                log_failure_msg
+                cleanupRuntimeEnvironment
+                return 1;
+            fi
+        else
             checkPidExist $PIDPATH
             local initRunning=$__pidExists
             if [[ $initRunning -eq 0 ]]; then
@@ -607,7 +660,7 @@ startCmd() {
 }
 
 stop_component() {
-    printf "Stopping %-21s" "${compName}... "
+    printf "Stopping %-21s" "${compName} ... "
 
     if [ ! -d ${compPath} ] ; then
         log_success_msg
@@ -720,7 +773,7 @@ status_component() {
       source ${runtime}/${compName}/setvars
       __slaves=$(cat ${runtime}/${compName}/slaves | wc -l)
       __slaveprocesses=$((${__slaves} * ${slavespernode}))
-      log "${compName} ---> Running ( pid ${__pidValue} ) with {__slaveprocesses} slave process(es)"
+      log "${compName} ---> Running ( pid ${__pidValue} ) with ${__slaveprocesses} slave process(es)"
       printf "%-15s ( pid %8s ) is running with %s slave process(es) ..." "${compName}" "${__pidValue}" "${__slaveprocesses}"
     else
       log "${compName} missing file in ${runtime}/${compName} necessary for status_component"
@@ -736,7 +789,12 @@ status_component() {
 
 
 setup_component() {
-    printf "Setting %-22s" "$compName.... "
+    check_status ${PIDPATH} ${LOCKPATH} ${COMPPIDPATH} 1
+    RCSTATUS=$?
+    if [[ ${RCSTATUS} -eq 0 ]]; then
+        stop_component ${compName}
+    fi
+    printf "Setting %-22s" "$compName ... "
     runSetupOnly=1
     start_component ${compName}
     runSetupOnly=0
@@ -1053,10 +1111,12 @@ cleanup_component() {
     # grab the PID of our component, and in the case it doesn't exist, the pid of the init file (in case
     # it somehow is still alive)
     local cpidpath=${COMPPIDPATH}
-    if [ "${compType}" = "thor" ] && [ ! -f "${cpidpath}" ]; then
-        # if run_thor is sent a SIGKILL, the normal COMPPIDPATH file will no longer exist, we catch this and
-        # fall back to the {compName}_master.pid file that will still be available.
-        cpidpath=$( echo $cpidpath | sed 's/\.pid/_master.pid/' )
+    if [[ "${compType}" == "thor" ]]; then
+        if [ ! -f "${cpidpath}" ]; then
+            # if run_thor is sent a SIGKILL, the normal COMPPIDPATH file will no longer exist, we catch this and
+            # fall back to the {compName}_master.pid file that will still be available.
+            cpidpath=$( echo $cpidpath | sed 's/\.pid/_master.pid/' )
+        fi
     fi
     getPid ${cpidpath}
     local mpid=$__pidValue

@@ -52,7 +52,7 @@
 
 
 function print_usage {
-    echo "Usage: $0 [-c component] {start|stop|restart|status|setup}
+    echo "Usage: $0 [-c component] {start|stop|restart|status|setup|stopall}
        $0 [--componentlist] Display node component name list.
        $0 [--typelist] Display node component type list.
        $0 [-f] [--force] Force hard kill on orphaned process groups
@@ -226,6 +226,7 @@ isComp=0
 component=""
 runSetupOnly=0
 dafilesrvflag=0
+stopall=0
 
 TEMP=`getopt -o c:hdf --long help,componentlist,typelist,debug,force -n 'hpcc-init' -- "$@"`
 if [ $? != 0 ] ; then echo "Failure to parse commandline." >&2 ; exit 1 ; fi
@@ -311,23 +312,30 @@ case "$arg" in
     status|start|restart|setup)
         cmd=$arg
         ;;
-    stop)
-       #need to reverse the list so that dali stops last
-       cmd=$arg
-       component_rev=""
-       if [ "${isComp}" -eq 0 ]; then
-         for (( i=${compListLen}; i>=0; i-- ));
-         do
-            if strstr ${compList[$i]} "dafilesrv" ;then
-              continue;
-            fi
-            component_rev="$component_rev ${compList[$i]}"
-         done
-         if [ ! -z "${component_rev}" ]; then
-            component=${component_rev}
-         fi   
-       fi
-       ;;
+    stop|stopall)
+        cmd=stop
+        #need to reverse the list so that dali stops last
+        component_rev=""
+        if [ "${isComp}" -eq 0 ]; then
+          for (( i=${compListLen}; i>=0; i-- ));
+          do
+             if strstr ${compList[$i]} "dafilesrv"; then
+               continue;
+             fi
+             component_rev="$component_rev ${compList[$i]}"
+          done
+          if [ ! -z "${component_rev}" ]; then
+             component=${component_rev}
+          fi
+          if [[ "$arg" == "stopall" ]]; then
+              # add dafilesrv back in at end
+              stopall=1
+              if [[ ! ${component} =~ "dafilesrv" ]]; then
+                  component="${component} ${compDafilesrv}"
+              fi
+          fi
+        fi
+        ;;
     *) print_usage
         ;;
 esac
@@ -420,7 +428,7 @@ if [ ${cmd} = "restart" ] && [ "${isComp}" -eq 0 ]; then
         xcmd="${cmd}_component ${compList[$i]}"
         log "--------------------------"
         log "${compName} ---> ${cmd}"
-        if strstr ${compType} "thor" && [ ${foundThorSlave}  -eq 1 ]; 
+        if strstr ${compType} "thor" && [ ${foundThorSlave} -eq 1 ];
         then
             log "Thor slave found on the node, hence just running the setup for thor"
             setup_component
@@ -465,7 +473,7 @@ for C in ${component} ; do
 done 
 
 
-if [ "$cmd" = "stop" ] && [ -n "$compDafilesrv" ]
+if [ "$cmd" = "stop" ] && [ -n "$compDafilesrv" ] && [ $stopall -eq 0 ]
 then
     ${INIT_PATH}/dafilesrv status 1>/dev/null 2>/dev/null
     if [ $? -ne 0 ];then
@@ -476,6 +484,5 @@ then
       echo "Service dafilesrv, ${compDafilesrv} is still running."
       echo "To stop it, run \"service dafilesrv stop\"."
     fi
-
 fi
 exit ${STATUS}
