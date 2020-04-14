@@ -54,7 +54,9 @@
 #include <cppunit/ui/text/TestRunner.h>
 #endif
 
-#include <sanitizer/lsan_interface.h>
+#ifdef __clang_major__
+# include <sanitizer/lsan_interface.h>
+#endif
 
 //=================================================================================
 
@@ -220,7 +222,9 @@ extern "C" void caughtSIGPIPE(int sig)
 extern "C" void caughtSIGHUP(int sig)
 {
     DBGLOG("Caught sighup %d", sig);
+#ifdef __clang_major__
     __lsan_do_recoverable_leak_check();
+#endif
 }
 
 
@@ -232,13 +236,19 @@ extern "C" void caughtSIGALRM(int sig)
 extern "C" void caughtSIGTERM(int sig)
 {
     DBGLOG("Caught sigterm %d", sig);
+#ifdef __clang_major__
     __lsan_do_recoverable_leak_check();
+#endif
 }
 
 extern "C" void caughtSIGUSR1(int sig)
 {
     DBGLOG("Caught sigusr1 %d - dumping leak check info to stderr", sig);
+#ifdef __clang_major__
     __lsan_do_recoverable_leak_check();
+#else
+    DBGLOG("Caught sigusr1 %d", sig);
+#endif
 }
 
 
