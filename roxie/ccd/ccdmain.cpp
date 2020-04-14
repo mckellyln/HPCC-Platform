@@ -54,6 +54,8 @@
 #include <cppunit/ui/text/TestRunner.h>
 #endif
 
+#include <sanitizer/lsan_interface.h>
+
 //=================================================================================
 
 bool shuttingDown = false;
@@ -218,6 +220,7 @@ extern "C" void caughtSIGPIPE(int sig)
 extern "C" void caughtSIGHUP(int sig)
 {
     DBGLOG("Caught sighup %d", sig);
+    __lsan_do_recoverable_leak_check();
 }
 
 
@@ -229,9 +232,14 @@ extern "C" void caughtSIGALRM(int sig)
 extern "C" void caughtSIGTERM(int sig)
 {
     DBGLOG("Caught sigterm %d", sig);
+    __lsan_do_recoverable_leak_check();
 }
 
-
+extern "C" void caughtSIGUSR1(int sig)
+{
+    DBGLOG("Caught sigusr1 %d - dumping leak check info to stderr", sig);
+    __lsan_do_recoverable_leak_check();
+}
 
 
 void init_signals()
@@ -241,6 +249,7 @@ void init_signals()
     signal(SIGPIPE, caughtSIGPIPE);
     signal(SIGHUP, caughtSIGHUP);
     signal(SIGALRM, caughtSIGALRM);
+    signal(SIGUSR1, caughtSIGUSR1);
 
 #endif
 }   

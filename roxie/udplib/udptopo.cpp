@@ -99,7 +99,8 @@ public:
 private:
     std::map<unsigned, SocketEndpointArray> slaves;  // indexed by channel
     std::map<unsigned, SocketEndpointArray> servers; // indexed by port
-    static const SocketEndpointArray nullArray;
+    // static const SocketEndpointArray nullArray;
+    static SocketEndpointArray nullArray;
     std::map<unsigned, ChannelInfo> channelInfo;
     std::map<unsigned, unsigned> mySubChannels;
     std::vector<unsigned> channels;
@@ -199,7 +200,8 @@ const std::vector<unsigned> &CTopologyServer::queryChannels() const
     return channels;
 }
 
-const SocketEndpointArray CTopologyServer::nullArray;
+// const SocketEndpointArray CTopologyServer::nullArray;
+SocketEndpointArray CTopologyServer::nullArray;
 
 // Class TopologyManager (there is a single instance) handles interaction with topology servers
 // to provide a TopologyServer reflecting current known cluster topology

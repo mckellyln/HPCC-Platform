@@ -644,7 +644,7 @@ bool CWsTopologyEx::readLastLogDateTime(const char *logName, IFileIO* rIO, size3
 
         previousPartialLine.clear().append(partialLineEndPtr - contentBuffer.str(), contentBuffer.str());
         readFrom -= readSize;
-        if (readFrom < 0)
+        if ((int)readFrom < 0)
             readFrom = 0;
     }
     return false;
