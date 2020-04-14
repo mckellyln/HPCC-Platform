@@ -2717,9 +2717,12 @@ public:
                 stats.noteSkips(lskips, lnullSkips);
                 if (found)
                 {
-                    IKeyCursor *mergeCursor = LINK(keyCursor);
+                    IKeyCursor *mergeCursor = keyCursor;
                     if (sortFromSeg)
+                    {
                         mergeCursor = keyCursor->fixSortSegs(sortFieldOffset);
+                        keyCursor->Release();
+                    }
                     keyNoArray.append(i);
                     cursorArray.append(*mergeCursor);
                     mergeHeapArray.append(activekeys++);
