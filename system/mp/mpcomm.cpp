@@ -450,7 +450,7 @@ public:
         ::Release(listensock);
     }
     int run();
-    void startPort(unsigned short port);
+    void startPort(unsigned short port, bool _listen);
     void stop()
     {
         if (running) {
@@ -493,6 +493,7 @@ protected:
 public:
     bool checkclosed;
     bool tryReopenChannel = false;
+    bool listen = false;
 
 // packet handlers
     PingPacketHandler           *pingpackethandler;         // TAG_SYS_PING
@@ -504,7 +505,7 @@ public:
 
     IMPLEMENT_IINTERFACE_USING(CMPChannelHT);
 
-    CMPServer(unsigned __int64 _role, unsigned _port);
+    CMPServer(unsigned __int64 _role, unsigned _port, bool _listen);
     ~CMPServer();
     void start();
     virtual void stop();
@@ -824,7 +825,7 @@ protected: friend class CMPPacketReader;
             {
                 StringBuffer str;
 #ifdef _TRACE
-                LOG(MCdebugInfo(100), unknownJob, "MP: connecting to %s",remoteep.getUrlStr(str).str());
+                LOG(MCdebugInfo(100), unknownJob, "MP: connecting to %s role: %llu", remoteep.getUrlStr(str).str(), parent->getRole());
 #endif
                 if (((int)tm.timeout)<0)
                     remaining = CONNECT_TIMEOUT;
@@ -985,7 +986,7 @@ protected: friend class CMPPacketReader;
                 }
 
 #ifdef _TRACE
-                LOG(MCdebugInfo(100), unknownJob, "MP: connect after socket read rd=%u, reply=%u, sizeof(connectHdr)=%lu", rd, reply, sizeof(connectHdr));
+                LOG(MCdebugInfo(100), unknownJob, "MP: connect after socket read rd=%u, sizeof(connectHdr)=%lu", rd, sizeof(connectHdr));
 #endif
 
                 if (rd)
@@ -1580,7 +1581,7 @@ public:
                     // assumes packet header will arrive in one go
                     if (sizeavail<sizeof(hdr)) {
 #ifdef _FULLTRACE
-                        LOG(MCdebugInfo(100), unknownJob, "Selected stalled on header %d %d",sizeavail,sizeavail-sizeof(hdr));
+                        LOG(MCdebugInfo(100), unknownJob, "Selected stalled on header %u %lu",sizeavail,sizeavail-sizeof(hdr));
 #endif
                         size32_t szread;
                         sock->read(&hdr,sizeof(hdr),sizeof(hdr),szread,60); // I don't *really* want to block here but not much else can do
@@ -1942,7 +1943,7 @@ CMPConnectThread::CMPConnectThread(CMPServer *_parent, unsigned port)
     mpSoMaxConn = 0;
     mpTraceLevel = 0;
     Owned<IPropertyTree> env = getHPCCEnvironment();
-    if (env)
+    if (env && parent->listen)
     {
         mpSoMaxConn = env->getPropInt("EnvSettings/mpSoMaxConn", 0);
         if (!mpSoMaxConn)
@@ -1956,7 +1957,7 @@ CMPConnectThread::CMPConnectThread(CMPServer *_parent, unsigned port)
         if (soMaxCheck && (mpSoMaxConn > kernSoMaxConn))
             WARNLOG("MP: kernel listen queue backlog setting (somaxconn=%d) is lower than environment mpSoMaxConn (%d) setting and should be increased", kernSoMaxConn, mpSoMaxConn);
     }
-    if (!mpSoMaxConn)
+    if (!mpSoMaxConn && parent->listen)
         mpSoMaxConn = DEFAULT_LISTEN_QUEUE_SIZE;
     if (!port)
     {
@@ -2041,10 +2042,12 @@ void CMPConnectThread::checkSelfDestruct(void *p,size32_t sz)
 
 }
 
-void CMPConnectThread::startPort(unsigned short port)
+void CMPConnectThread::startPort(unsigned short port, bool _listen)
 {
     if (!listensock)
         listensock = ISocket::create(port, mpSoMaxConn);
+    if (!_listen)
+        return;
     running = true;
     Thread::start();
 }
@@ -2312,12 +2315,14 @@ CMPChannel *CMPServer::lookup(const SocketEndpoint &endpoint)
 }
 
 
-CMPServer::CMPServer(unsigned __int64 _role, unsigned _port)
+CMPServer::CMPServer(unsigned __int64 _role, unsigned _port, bool _listen)
 {
     RTsalt=0xff;
     role = _role;
     port = 0;   // connectthread tells me what port it actually connected on
     checkclosed = false;
+    listen = _listen;
+
     connectthread = new CMPConnectThread(this, _port);
     selecthandler = createSocketSelectHandler();
     pingpackethandler = new PingPacketHandler;              // TAG_SYS_PING
@@ -2516,12 +2521,12 @@ unsigned CMPServer::probe(const SocketEndpoint *ep, mptag_t tag,CTimeMon &tm,Soc
 
 void CMPServer::start()
 {
-    connectthread->startPort(getPort());
+    connectthread->startPort(getPort(), listen);
 }
 
 void CMPServer::stop()
 {
-    selecthandler->stop(true); 
+    selecthandler->stop(true);
     connectthread->stop();
     CMPChannel *c = NULL;
     for (;;) {
@@ -3201,10 +3206,10 @@ ICommunicator *CMPServer::createCommunicator(IGroup *group, bool outer)
 
 ///////////////////////////////////
 
-IMPServer *startNewMPServer(unsigned port)
+IMPServer *startNewMPServer(unsigned port, bool listen)
 {
     assertex(sizeof(PacketHeader)==32);
-    CMPServer *mpServer = new CMPServer(0, port);
+    CMPServer *mpServer = new CMPServer(0, port, listen);
     mpServer->start();
     return mpServer;
 }
@@ -3218,7 +3223,7 @@ class CGlobalMPServer : public CMPServer
 public:
     static CriticalSection sect;
 
-    CGlobalMPServer(unsigned __int64 _role, unsigned _port) : CMPServer(_role, _port)
+    CGlobalMPServer(unsigned __int64 _role, unsigned _port, bool _listen) : CMPServer(_role, _port, _listen)
     {
         worldcomm = NULL;
         nestLevel = 0;
@@ -3252,14 +3257,14 @@ MODULE_EXIT()
     ::Release(globalMPServer);
 }
 
-void startMPServer(unsigned __int64 role, unsigned port, bool paused)
+void startMPServer(unsigned __int64 role, unsigned port, bool paused, bool listen)
 {
     assertex(sizeof(PacketHeader)==32);
     CriticalBlock block(CGlobalMPServer::sect);
     if (NULL == globalMPServer)
     {
-        globalMPServer = new CGlobalMPServer(role, port);
-        initMyNode(globalMPServer->getPort());
+        globalMPServer = new CGlobalMPServer(role, port, listen);
+        initMyNode(globalMPServer->getPort(), listen);
     }
     if (0 == globalMPServer->queryNest())
     {
@@ -3275,9 +3280,9 @@ void startMPServer(unsigned __int64 role, unsigned port, bool paused)
     globalMPServer->incNest();
 }
 
-void startMPServer(unsigned port, bool paused)
+void startMPServer(unsigned port, bool paused, bool listen)
 {
-    startMPServer(0, port, paused);
+    startMPServer(0, port, paused, listen);
 }
 
 void stopMPServer()

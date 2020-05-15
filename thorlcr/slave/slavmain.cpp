@@ -72,7 +72,7 @@ void enableThorSlaveAsDaliClient()
         try
         {
             LOG(MCdebugProgress, thorJob, "calling initClientProcess");
-            initClientProcess(serverGroup,DCR_ThorSlave, getFixedPort(TPORT_mp));
+            initClientProcess(serverGroup,DCR_ThorSlave, getFixedPort(TPORT_mp), NULL, NULL, MP_WAIT_FOREVER, true);
             break;
         }
         catch (IJSOCK_Exception *e)
@@ -1665,7 +1665,7 @@ public:
         for (unsigned sc=1; sc<channelsPerSlave; sc++)
         {
             unsigned port = getMachinePortBase() + (sc * localThorPortInc);
-            IMPServer *mpServer = startNewMPServer(port);
+            IMPServer *mpServer = startNewMPServer(port, true);
             if (reconnect)
                 mpServer->setOpt(mpsopt_channelreopen, "true");
             mpServers.append(*mpServer);

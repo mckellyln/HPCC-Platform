@@ -736,7 +736,7 @@ IGroup *deserializeIGroup(MemoryBuffer &src)
 
 
 
-void initMyNode(unsigned short port)
+void initMyNode(unsigned short port, bool listen)
 {
     setNodeCaching(port != 0);
     ::Release(MyNode);
