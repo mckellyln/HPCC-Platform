@@ -83,6 +83,7 @@ interface IGroup: extends IInterface
     virtual void serialize(MemoryBuffer &tgt) const = 0;
     virtual StringBuffer &getText(StringBuffer &text) const = 0;
     virtual void getSocketEndpoints(SocketEndpointArray &sea) const = 0;
+    virtual void updateGroupPort(unsigned short _port) const = 0;
 
     virtual unsigned distance(const IpAddress &ip) const = 0;
     virtual unsigned distance(const IGroup *grp) const = 0;
@@ -103,6 +104,7 @@ interface INode: extends IInterface
     virtual bool isLocalTo(INode *node) const = 0; // is same machine as node 
     virtual bool isHost() const = 0;                // is same machine as running this process
     virtual void serialize(MemoryBuffer &tgt) = 0;
+    virtual void updatePort(unsigned short _port) = 0;
 
 };
 

@@ -56,6 +56,11 @@ public:
         return ep.ipequals(to->endpoint());
     }
     const SocketEndpoint &endpoint() const { return ep; }
+    void updatePort(unsigned short _port)
+    {
+        DBGLOG("mck - MPNode::updateport old = %u new = %u", ep.port, _port);
+        ep.port = _port;
+    }
 
 };
 
@@ -187,6 +192,7 @@ public:
     rank_t ordinality()  const { return count; }
     rank_t rank(const SocketEndpoint &ep) const 
     {
+        DBGLOG("mck - rank() called, count = %u", count);
         rank_t i=count;
         while (i) {
             i--;
@@ -588,6 +594,13 @@ public:
             sea.append((SocketEndpoint &)nodes[i]->endpoint());
     }
 
+    void updateGroupPort(unsigned short _port) const
+    {
+        if (count > 1)
+            return;
+        nodes[0]->updatePort(_port);
+    }
+
 };
 
 
@@ -741,7 +754,7 @@ void initMyNode(unsigned short port, bool listen)
     setNodeCaching(port != 0);
     ::Release(MyNode);
     MyNode = NULL;
-    if (port) {
+    if (port || !listen) {
         SocketEndpoint ep(port);
         MyNode = new MPNode(ep);
         if (ep.isLoopBack()) {
@@ -758,16 +771,25 @@ void initMyNode(unsigned short port, bool listen)
 
 INode *queryMyNode()
 {
+    SocketEndpoint lep(MyNode->endpoint());
+    unsigned short lport = lep.port;
+    DBGLOG("mck - INode::queryMyNode() called, MyNode port = %u", lport);
     return MyNode;
 }
 
 INode *queryNullNode()
 {
+    DBGLOG("mck - INode::queryNullNode() called");
     if (!NullNode) {
         SocketEndpoint ep;
         NullNode = new MPNode(ep);
     }
     return NullNode;
+}
+
+void updateMyNodePort(unsigned short _port)
+{
+
 }
 
 void setNodeCaching(bool on)

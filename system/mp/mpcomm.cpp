@@ -512,6 +512,7 @@ public:
     unsigned short getPort() const { return port; }
     unsigned __int64 getRole() const { return role; }
     void setPort(unsigned short _port) { port = _port; }
+    void setmyNodePort(unsigned short _port);
     CMPChannel *lookup(const SocketEndpoint &remoteep);
     ISocketSelectHandler &querySelectHandler() { return *selecthandler; };
     CBufferQueue &getReceiveQ() { return receiveq; }
@@ -566,6 +567,9 @@ public:
     virtual ICommunicator *createCommunicator(IGroup *group, bool outer);
     virtual INode *queryMyNode()
     {
+        SocketEndpoint lep(myNode->endpoint());
+        unsigned short lport = lep.port;
+        DBGLOG("mck - MPServer::queryMyNode() called, port = %u", lport);
         return myNode;
     }
     virtual void setOpt(MPServerOpts opt, const char *value)
@@ -586,11 +590,14 @@ public:
     }
     virtual void installWhiteListCallback(IWhiteListHandler *whiteListCallback) override
     {
-        connectthread->installWhiteListCallback(whiteListCallback);
+        if (listen)
+            connectthread->installWhiteListCallback(whiteListCallback);
     }
     virtual IWhiteListHandler *queryWhiteListCallback() const override
     {
-        return connectthread->queryWhiteListCallback();
+        if (listen)
+            return connectthread->queryWhiteListCallback();
+        return nullptr;
     }
 };
 
@@ -843,6 +850,17 @@ protected: friend class CMPPacketReader;
 #ifdef _FULLTRACE
                 LOG(MCdebugInfo(100), unknownJob, "MP: connect after socket connect, retrycount = %d", retrycount);
 #endif
+
+                if (!parent->listen)
+                {
+                    SocketEndpoint uep;
+                    unsigned short uport = newsock->getEndpoint(uep).port;
+                    DBGLOG("mck - updating parent port from %u to %u", parent->getPort(), uport);
+                    parent->setPort(uport);
+                    // mck - update myNode port here also ...
+                    parent->setmyNodePort(uport);
+                    parent->queryMyNode()->updatePort(uport);
+                }
 
                 SocketEndpoint hostep;
                 hostep.setLocalHost(parent->getPort());
@@ -2323,7 +2341,9 @@ CMPServer::CMPServer(unsigned __int64 _role, unsigned _port, bool _listen)
     checkclosed = false;
     listen = _listen;
 
-    connectthread = new CMPConnectThread(this, _port);
+    if (listen)
+        connectthread = new CMPConnectThread(this, _port);
+
     selecthandler = createSocketSelectHandler();
     pingpackethandler = new PingPacketHandler;              // TAG_SYS_PING
     pingreplypackethandler = new PingReplyPacketHandler;    // TAG_SYS_PING_REPLY
@@ -2353,7 +2373,8 @@ CMPServer::~CMPServer()
     selecthandler->Release();
     notifyclosedthread->stop();
     notifyclosedthread->Release();
-    connectthread->Release();
+    if (listen)
+        connectthread->Release();
     
     delete pingpackethandler;
     delete pingreplypackethandler;
@@ -2362,6 +2383,12 @@ CMPServer::~CMPServer()
     delete broadcastpackethandler;
     delete userpackethandler;
     ::Release(myNode);
+}
+
+void CMPServer::setmyNodePort(unsigned short _port)
+{
+    DBGLOG("mck - CMPServer::setmyNodePort(%u)", _port);
+    myNode->updatePort(_port);
 }
 
 void CMPServer::checkTagOK(mptag_t tag)
@@ -2521,13 +2548,15 @@ unsigned CMPServer::probe(const SocketEndpoint *ep, mptag_t tag,CTimeMon &tm,Soc
 
 void CMPServer::start()
 {
-    connectthread->startPort(getPort(), listen);
+    if (listen)
+        connectthread->startPort(getPort(), listen);
 }
 
 void CMPServer::stop()
 {
     selecthandler->stop(true);
-    connectthread->stop();
+    if (listen)
+        connectthread->stop();
     CMPChannel *c = NULL;
     for (;;) {
         c = (CMPChannel *)next(c);
@@ -3188,6 +3217,7 @@ public:
         outer = _outer;
         parent = _parent;
         group = LINK(_group); 
+        DBGLOG("mck - CCommunicator() want to call queryMyNode(), parent->listen = %u", parent->listen);
         myrank = group->rank(parent->queryMyNode());
     }
     ~CCommunicator()
