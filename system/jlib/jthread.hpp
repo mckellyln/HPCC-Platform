@@ -206,6 +206,33 @@ public:
     virtual void Do(unsigned idx=0)=0;
 };
 
+template <typename AsyncFunc>
+class CAsyncForFunc final : public CAsyncFor
+{
+public:
+    CAsyncForFunc(AsyncFunc _func) : func(_func) {}
+    virtual void Do(unsigned idx=0) { func(idx); }
+private:
+    AsyncFunc func;
+};
+
+template <typename AsyncFunc>
+inline void AsyncFor(unsigned num, unsigned maxAtOnce, bool abortFollowingException, bool shuffled, AsyncFunc func)
+{
+    CAsyncForFunc<AsyncFunc> async(func);
+    async.For(num, maxAtOnce, abortFollowingException, shuffled);
+}
+template <typename AsyncFunc>
+inline void AsyncFor(unsigned num, unsigned maxAtOnce, bool abortFollowingException, AsyncFunc func)
+{
+    AsyncFor(num, maxAtOnce, abortFollowingException, false, func);
+}
+template <typename AsyncFunc>
+inline void AsyncFor(unsigned num, unsigned maxAtOnce, AsyncFunc func)
+{
+    AsyncFor(num, maxAtOnce, false, false, func);
+}
+
 // ---------------------------------------------------------------------------
 // Thread Pools
 // ---------------------------------------------------------------------------
