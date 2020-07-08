@@ -447,6 +447,30 @@ void CRemoteSlave::run(int argc, char * argv[])
                         byte action;
                         msg.read(action);
 
+                        // <= 7.6.xx clients also send:
+                        //      num passwords followed by those pwds
+                        // >= 7.8.0 clients do not send password data
+
+                        // so next unsigned could be either num passwords or netaddr
+                        // if unsigned value <= 10 assumme it is num passwords
+                        // as IP address will surely have higher bits set and be larger than that
+
+                        unsigned numPasswds = 0;
+                        size32_t origPos = msg.getPos();
+                        msg.read(numPasswds);
+                        if (numPasswds <= 10)
+                        {
+                            for (int i=0; i<numPasswds; i++)
+                            {
+                                IpAddress tip;
+                                tip.ipdeserialize(msg);
+                                StringBuffer password, username;
+                                msg.read(password).read(username);
+                            }
+                        }
+                        else
+                            msg.reset(origPos);
+
                         ok = processCommand(action, masterSocket, msg, results);
                     }
                     catch (IException * e)
