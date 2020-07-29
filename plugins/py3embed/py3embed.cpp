@@ -48,6 +48,10 @@
   #define Py_TPFLAGS_HAVE_ITER 0
 #endif
 
+#if PY_MINOR_VERSION < 7
+  #define USE_CUSTOM_NAMEDTUPLES
+#endif
+
 static const char * compatibleVersions[] = {
     "Python3.x Embed Helper 1.0.0",
     NULL };
@@ -145,6 +149,111 @@ static void checkPythonError()
         failx("%s", text);
     }
 }
+
+#ifdef USE_CUSTOM_NAMEDTUPLES
+// In Python3.6 we can't use the standard namedtuple if we have > 255 params. So we need to use our own based on similar techniques
+static constexpr const char * _py36code = R"!!(
+import sys as _sys
+from keyword import iskeyword as _iskeyword
+_class_template = """\
+from builtins import property as _property, tuple as _tuple
+from operator import itemgetter as _itemgetter
+from collections import OrderedDict
+class {typename}(tuple):
+    '{typename}({arg_list})'
+    __slots__ = ()
+    _fields = {field_names!r}
+    def __new__(_cls, t):
+        'Create new instance of {typename}({arg_list})'
+        return _tuple.__new__(_cls, t)
+    @classmethod
+    def _make(cls, iterable, new=tuple.__new__, len=len):
+        'Make a new {typename} object from a sequence or iterable'
+        result = new(cls, iterable)
+        if len(result) != {num_fields:d}:
+            raise TypeError('Expected {num_fields:d} arguments, got %d' % len(result))
+        return result
+    def _replace(_self, **kwds):
+        'Return a new {typename} object replacing specified fields with new values'
+        result = _self._make(map(kwds.pop, {field_names!r}, _self))
+        if kwds:
+            raise ValueError('Got unexpected field names: %r' % list(kwds))
+        return result
+    def __repr__(self):
+        'Return a nicely formatted representation string'
+        return self.__class__.__name__ + '({repr_fmt})' % self
+    def _asdict(self):
+        'Return a new OrderedDict which maps field names to their values.'
+        return OrderedDict(zip(self._fields, self))
+    def __getnewargs__(self):
+        'Return self as a plain tuple.  Used by copy and pickle.'
+        return tuple(self)
+{field_defs}
+"""
+
+_repr_template = '"{name}=%r";'
+
+_field_template = '''\
+    {name} = _property(_itemgetter({index:d}), doc='Alias for field number {index:d}')
+'''
+
+def namedtuple(typename, field_names):
+
+    # Validate the field names.  At the user's option, either generate an error
+    # message or automatically replace the field name with a valid name.
+    field_names = field_names.replace(',', ' ').split()
+    field_names = list(map(str, field_names))
+    typename = str(typename)
+    for index, name in enumerate(field_names):
+        if (not name.isidentifier()
+            or _iskeyword(name)
+            or name.startswith('_')):
+            field_names[index] = '_%d' % index
+    for name in [typename] + field_names:
+        if type(name) is not str:
+            raise TypeError('Type names and field names must be strings')
+        if not name.isidentifier():
+            raise ValueError('Type names and field names must be valid '
+                             'identifiers: %r' % name)
+        if _iskeyword(name):
+            raise ValueError('Type names and field names cannot be a '
+                             'keyword: %r' % name)
+
+    # Fill-in the class template
+    class_definition = _class_template.format(
+        typename = typename,
+        field_names = tuple(field_names),
+        num_fields = len(field_names),
+        arg_list = repr(tuple(field_names)).replace("'", "")[1:-1],
+        repr_fmt = ', '.join(_repr_template.format(name=name)
+                             for name in field_names),
+        field_defs = '\n'.join(_field_template.format(index=index, name=name)
+                               for index, name in enumerate(field_names))
+    )
+
+    # Execute the template string in a temporary namespace and support
+    # tracing utilities by setting a value for frame.f_globals['__name__']
+    namespace = dict(__name__='namedtuple_%s' % typename)
+    exec(class_definition, namespace)
+    result = namespace[typename]
+
+    # For pickling to work, the __module__ variable needs to be set to the frame
+    # where the named tuple is created.  Bypass this step in environments where
+    # sys._getframe is not defined (Jython for example) or sys._getframe is not
+    # defined for arguments greater than 0 (IronPython), or where the user has
+    # specified a particular module.
+    module = None
+    try:
+        module = _sys._getframe(1).f_globals.get('__name__', '__main__')
+    except (AttributeError, ValueError):
+        pass
+    if module is not None:
+        result.__module__ = module
+
+    return result
+)!!";
+
+#endif
 
 // The Python Global Interpreter Lock (GIL) won't know about C++-created threads, so we need to
 // call PyGILState_Ensure() and PyGILState_Release at the start and end of every function.
@@ -394,10 +503,17 @@ public:
         if (!namedtuple)
         {
             namedtupleTypes.setown(PyDict_New());
+#ifdef USE_CUSTOM_NAMEDTUPLES
+            OwnedPyObject temp_namespace(PyDict_New());
+            PyDict_SetItemString(temp_namespace, "__builtins__",  PyEval_GetBuiltins());  // required for import to work
+            PyRun_String(_py36code, Py_file_input, temp_namespace, temp_namespace);
+            namedtuple.set(PyDict_GetItemString(temp_namespace, "namedtuple"));
+#else
             OwnedPyObject pName = PyUnicode_FromString("collections");
             OwnedPyObject collections = PyImport_Import(pName);
             checkPythonError();
             namedtuple.setown(PyObject_GetAttrString(collections, "namedtuple"));
+#endif
             checkPythonError();
             assertex(PyCallable_Check(namedtuple));
         }
@@ -415,20 +531,6 @@ public:
             mynamedtupletype.setown(PyObject_CallObject(namedtuple, ntargs));
             popDummyFrame(frame);
             checkPythonError();
-            if (numFields > 255)
-            {
-                OwnedPyObject newname = PyUnicode_FromString("__new__");
-                OwnedPyObject constr = PyObject_GetAttr(mynamedtupletype, newname);
-                checkPythonError();
-                OwnedPyObject defname = PyUnicode_FromString("__defaults__");
-                OwnedPyObject noneList = PyList_New(0);
-                while (numFields--)
-                    PyList_Append(noneList, Py_None);
-                OwnedPyObject argsTuple = PyList_AsTuple(noneList);
-                checkPythonError();
-                PyObject_SetAttr(constr, defname, argsTuple);
-                checkPythonError();
-            }
             PyDict_SetItem(namedtupleTypes, pnames, mynamedtupletype);
         }
         checkPythonError();
@@ -1213,28 +1315,16 @@ public:
     {
         OwnedPyObject mynamedtupletype = sharedCtx ? sharedCtx->getNamedTupleType(type) : globalState.getNamedTupleType(type);
         Py_ssize_t len = PyList_Size(args);
-        if (len > 255)
-        {
-            // Python restrictions prevent us passing > 255 params to the constructor, so have to do it the hard way....
-            OwnedPyObject mynamedtuple = PyObject_CallObject(mynamedtupletype, NULL);
-            assertex(PyTuple_Check(mynamedtuple));
-            checkPythonError();
-            for (Py_ssize_t idx = 0; idx < len; idx++)
-            {
-                PyObject *arg = PyList_GetItem(args, idx);
-                Py_INCREF(arg);
-                PyTuple_SetItem(mynamedtuple.get(), idx, arg);
-                checkPythonError();
-            }
-            return mynamedtuple.getClear();
-        }
-        else
-        {
-            OwnedPyObject argsTuple = PyList_AsTuple(args);
-            OwnedPyObject mynamedtuple = PyObject_CallObject(mynamedtupletype, argsTuple);  // Creates a namedtuple from the supplied tuple
-            checkPythonError();
-            return mynamedtuple.getClear();
-        }
+#ifdef USE_CUSTOM_NAMEDTUPLES
+        OwnedPyObject argsTuple = PyTuple_New(1);
+        Py_INCREF(args);
+        PyTuple_SET_ITEM((PyTupleObject *) argsTuple.get(), 0, args);
+#else
+        OwnedPyObject argsTuple = PyList_AsTuple(args);
+#endif
+        OwnedPyObject mynamedtuple = PyObject_CallObject(mynamedtupletype, argsTuple);  // Creates a namedtuple from the supplied tuple
+        checkPythonError();
+        return mynamedtuple.getClear();
     }
 protected:
     void push()
