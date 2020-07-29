@@ -381,11 +381,11 @@ public:
         // and if we add our own lock we are liable to deadlock as the code within Py_CompileStringFlags may
         // temporarily release then re-acquire the GIL.
         if (!activityContextTupleType)
-            activityContextTupleType.setown(getNamedTupleType("isLocal,numSlaves,numStrands,slave,strand"));
+            activityContextTupleType.setown(getNamedTupleType("isLocal,numSlaves,numStrands,slave,strand", 5));
         return activityContextTupleType.get();
     }
 
-    PyObject *getNamedTupleType(const char *names)
+    PyObject *getNamedTupleType(const char *names, unsigned numFields)
     {
         // It seems the customized namedtuple types leak, and they are slow to create, so take care to reuse
         // Note - we do not need (and must not have) a lock protecting this. It is protected by the Python GIL,
@@ -415,6 +415,20 @@ public:
             mynamedtupletype.setown(PyObject_CallObject(namedtuple, ntargs));
             popDummyFrame(frame);
             checkPythonError();
+            if (numFields > 255)
+            {
+                OwnedPyObject newname = PyUnicode_FromString("__new__");
+                OwnedPyObject constr = PyObject_GetAttr(mynamedtupletype, newname);
+                checkPythonError();
+                OwnedPyObject defname = PyUnicode_FromString("__defaults__");
+                OwnedPyObject noneList = PyList_New(0);
+                while (numFields--)
+                    PyList_Append(noneList, Py_None);
+                OwnedPyObject argsTuple = PyList_AsTuple(noneList);
+                checkPythonError();
+                PyObject_SetAttr(constr, defname, argsTuple);
+                checkPythonError();
+            }
             PyDict_SetItem(namedtupleTypes, pnames, mynamedtupletype);
         }
         checkPythonError();
@@ -429,6 +443,7 @@ public:
             fields = type->queryChildType()->queryFields();
         assertex(fields);
         StringBuffer names;
+        unsigned numFields = 0;
         while (*fields)
         {
             const RtlFieldInfo *field = *fields;
@@ -436,8 +451,9 @@ public:
                 names.append(',');
             names.append(field->name);
             fields++;
+            numFields++;
         }
-        return getNamedTupleType(names.str());
+        return getNamedTupleType(names.str(), numFields);
     }
 
     StringBuffer & reformatCompilerError(StringBuffer &ret, const char *error, unsigned leadingLines)
@@ -1196,10 +1212,29 @@ public:
     PyObject *getTuple(const RtlTypeInfo *type)
     {
         OwnedPyObject mynamedtupletype = sharedCtx ? sharedCtx->getNamedTupleType(type) : globalState.getNamedTupleType(type);
-        OwnedPyObject argsTuple = PyList_AsTuple(args);
-        OwnedPyObject mynamedtuple = PyObject_CallObject(mynamedtupletype, argsTuple);  // Creates a namedtuple from the supplied tuple
-        checkPythonError();
-        return mynamedtuple.getClear();
+        Py_ssize_t len = PyList_Size(args);
+        if (len > 255)
+        {
+            // Python restrictions prevent us passing > 255 params to the constructor, so have to do it the hard way....
+            OwnedPyObject mynamedtuple = PyObject_CallObject(mynamedtupletype, NULL);
+            assertex(PyTuple_Check(mynamedtuple));
+            checkPythonError();
+            for (Py_ssize_t idx = 0; idx < len; idx++)
+            {
+                PyObject *arg = PyList_GetItem(args, idx);
+                Py_INCREF(arg);
+                PyTuple_SetItem(mynamedtuple.get(), idx, arg);
+                checkPythonError();
+            }
+            return mynamedtuple.getClear();
+        }
+        else
+        {
+            OwnedPyObject argsTuple = PyList_AsTuple(args);
+            OwnedPyObject mynamedtuple = PyObject_CallObject(mynamedtupletype, argsTuple);  // Creates a namedtuple from the supplied tuple
+            checkPythonError();
+            return mynamedtuple.getClear();
+        }
     }
 protected:
     void push()
