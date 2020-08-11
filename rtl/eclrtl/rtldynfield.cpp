@@ -1145,7 +1145,7 @@ private:
         memset(destConditions, 2, destRecInfo.getNumIfBlocks() * sizeof(byte));
         size32_t estimate = destRecInfo.getFixedSize();
         bool hasBlobs = false;
-        if (!estimate)
+        if (!estimate && !destRecInfo.getNumIfBlocks() && !sourceRecInfo.getNumIfBlocks() && !hasBlobs)
         {
             if (binarySource)
                 estimate = estimateNewSize(*(const RtlRow *)sourceRow);
@@ -1462,7 +1462,7 @@ private:
     const RtlRecord &sourceRecInfo;
     bool binarySource = true;
     type_vals callbackRawType;
-    unsigned fixedDelta = 0;  // total size of all fixed-size source fields that are not matched
+    int fixedDelta = 0;  // total size difference from all fixed size mappings
     UnsignedArray allUnmatched;  // List of all source fields that are unmatched (so that we can trace them)
     UnsignedArray variableUnmatched;  // List of all variable-size source fields that are unmatched
     FieldMatchType matchFlags = match_perfect;
@@ -1777,14 +1777,16 @@ private:
                     allUnmatched.append(idx);
                 }
             }
-            //DBGLOG("Source record contains %d bytes of omitted fixed size fields", fixedDelta);
+            //DBGLOG("Delta from fixed-size fields is %d bytes", fixedDelta);
         }
     }
     size32_t estimateNewSize(const RtlRow &sourceRow) const
     {
         //DBGLOG("Source record size is %d", (int) sourceRow.getRecordSize());
-        size32_t expectedSize = sourceRow.getRecordSize() - fixedDelta;
-        //DBGLOG("Source record size without omitted fixed size fields is %d", expectedSize);
+        size32_t expectedSize = sourceRow.getRecordSize();
+        assertex((int) expectedSize >= fixedDelta);
+        expectedSize -= fixedDelta;
+        //DBGLOG("Source record size without fixed delta is %d", expectedSize);
         ForEachItemIn(i, variableUnmatched)
         {
             unsigned fieldNo = variableUnmatched.item(i);
@@ -1814,8 +1816,12 @@ private:
                     // uft8 <-> string we could calculate here - but unlikely to be worth the effort.
                     // But it's fine for fixed size output fields, including truncate/extend
                     // We could also precalculate the expected delta if all omitted fields are fixed size - but not sure how likely/worthwhile that is.
-                    expectedSize += type->getMinSize() - sourceRow.getSize(matchField);
-                    //DBGLOG("Adjusting estimated size by (%d - %d) to %d for translated field %d (%s)", (int) sourceRow.getSize(matchField), type->getMinSize(), expectedSize, matchField, sourceRecInfo.queryName(matchField));
+                    auto minSize = type->getMinSize();
+                    auto sourceSize = sourceRow.getSize(matchField);
+                    expectedSize += minSize;
+                    assertex(expectedSize >= sourceSize);
+                    expectedSize -= sourceSize;
+                    //DBGLOG("Adjusting estimated size by (%d - %d) to %d for translated field %d (%s)", (int) sourceSize, minSize, expectedSize, matchField, sourceRecInfo.queryName(matchField));
                     break;
                 }
             }
