@@ -1145,9 +1145,9 @@ private:
         memset(destConditions, 2, destRecInfo.getNumIfBlocks() * sizeof(byte));
         size32_t estimate = destRecInfo.getFixedSize();
         bool hasBlobs = false;
-        if (!estimate && !destRecInfo.getNumIfBlocks() && !sourceRecInfo.getNumIfBlocks() && !hasBlobs)
+        if (!estimate)
         {
-            if (binarySource)
+            if (binarySource && !hasBlobs)
                 estimate = estimateNewSize(*(const RtlRow *)sourceRow);
             else
                 estimate = destRecInfo.getMinRecordSize();
@@ -1443,9 +1443,7 @@ private:
             }
             else
             {
-                // Note - ifblocks make this assertion invalid. We do not account for potentially omitted fields
-                // when estimating target record size.
-                if (!destRecInfo.getNumIfBlocks() && !hasBlobs)
+                if (!hasBlobs)
                     assert(offset-origOffset > estimate);  // Estimate is always supposed to be conservative
     #ifdef TRACE_TRANSLATION
                 DBGLOG("Wrote %u bytes to record (estimate was %u)\n", offset-origOffset, estimate);
@@ -1593,8 +1591,11 @@ private:
             {
                 const byte * initializer = (const byte *) field->initializer;
                 info.matchType = isVirtualInitializer(initializer) ? match_virtual : match_none;
-                size32_t defaultSize = (initializer && !isVirtualInitializer(initializer)) ? type->size(initializer, nullptr) : type->getMinSize();
-                fixedDelta -= defaultSize;
+                if ((field->flags & RFTMinifblock) == 0)
+                {
+                    size32_t defaultSize = (initializer && !isVirtualInitializer(initializer)) ? type->size(initializer, nullptr) : type->getMinSize();
+                    fixedDelta -= defaultSize;
+                }
                 if ((field->flags & RFTMispayloadfield) == 0)
                     matchFlags |= match_keychange;
                 defaulted++;
@@ -1604,6 +1605,8 @@ private:
             {
                 bool deblob = false;
                 const RtlTypeInfo *sourceType = sourceRecInfo.queryType(info.matchIdx);
+                unsigned sourceFlags = sourceRecInfo.queryField(info.matchIdx)->flags;
+                unsigned destFlags = field->flags;
                 if (binarySource && sourceType->isBlob())
                 {
                     if (type->isBlob())
@@ -1715,7 +1718,8 @@ private:
                             if (type->canTruncate())
                             {
                                 info.matchType = match_truncate;
-                                fixedDelta += sourceType->getMinSize()-type->getMinSize();
+                                if (((sourceFlags|destFlags) & RFTMinifblock) == 0)
+                                    fixedDelta += sourceType->getMinSize()-type->getMinSize();
                                 //DBGLOG("Increasing fixedDelta size by %d to %d for truncated field %d (%s)", sourceType->getMinSize()-type->getMinSize(), fixedDelta, idx, destRecInfo.queryName(idx));
                             }
                         }
@@ -1724,7 +1728,8 @@ private:
                             if (type->canExtend(info.fillChar))
                             {
                                 info.matchType = match_extend;
-                                fixedDelta += sourceType->getMinSize()-type->getMinSize();
+                                if (((sourceFlags|destFlags) & RFTMinifblock) == 0)
+                                    fixedDelta += sourceType->getMinSize()-type->getMinSize();
                                 //DBGLOG("Decreasing fixedDelta size by %d to %d for truncated field %d (%s)", type->getMinSize()-sourceType->getMinSize(), fixedDelta, idx, destRecInfo.queryName(idx));
                             }
                         }
@@ -1734,7 +1739,6 @@ private:
                     info.matchType = match_typecast;
                 if (deblob)
                     info.matchType |= match_deblob;
-                unsigned sourceFlags = sourceRecInfo.queryField(info.matchIdx)->flags;
                 if (sourceFlags & RFTMinifblock)
                     info.matchType |= match_inifblock;  // Avoids incorrect commoning up of adjacent matches
                 // MORE - could note the highest interesting fieldnumber in the source and not bother filling in offsets after that
@@ -1766,7 +1770,7 @@ private:
                     if (!destRecInfo.getFixedSize())
                     {
                         const RtlTypeInfo *type = field->type;
-                        if (type->isFixedSize())
+                        if (type->isFixedSize() && (field->flags & RFTMinifblock)==0)
                         {
                             //DBGLOG("Reducing estimated size by %d for (fixed size) omitted field %s", (int) type->getMinSize(), field->name);
                             fixedDelta += type->getMinSize();
