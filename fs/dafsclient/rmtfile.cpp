@@ -686,6 +686,10 @@ public:
         initSendBuffer(sendBuffer);
         MemoryBuffer replyBuffer;
         sendBuffer.append((RemoteFileCommandType)RFCexists).append(filename);
+
+        fprintf(stderr,"mck - CRemoteFile::exists(%s) called\n", filename.str());
+        fflush(NULL);
+
         sendRemoteCommand(sendBuffer, replyBuffer);
 
         bool ok;

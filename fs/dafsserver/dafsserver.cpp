@@ -3734,6 +3734,7 @@ public:
         msg.read(name);
         if (TF_TRACE)
             PROGLOG("exists,  '%s'",name.get());
+        PROGLOG("mck exists,  '%s'",name.get());
         Owned<IFile> file=createIFile(name);
         bool e = file->exists();
         reply.append((unsigned)RFEnoerror).append(e);

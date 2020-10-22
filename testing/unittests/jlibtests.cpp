@@ -2416,5 +2416,47 @@ public:
 CPPUNIT_TEST_SUITE_REGISTRATION( JlibFriendlySizeTest );
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION( JlibFriendlySizeTest, "JlibFriendlySizeTest" );
 
+// ================================================
+
+class RemoteExistsLoopUnitTest : public CppUnit::TestFixture
+{
+protected:
+    StringBuffer server, tmpfile;
+
+    CPPUNIT_TEST_SUITE(RemoteExistsLoopUnitTest);
+      CPPUNIT_TEST(testExistsLoop);
+    CPPUNIT_TEST_SUITE_END();
+
+public:
+    void testExistsLoop()
+    {
+        server.set(".");
+        SocketEndpoint ep;
+        ep.set(server, 7100);
+        tmpfile.set("does-not-exist-file.txt");
+
+        // setDaliServixSocketCaching(true);
+
+        IFile *ifile;
+        int cnt = 0;
+        for (int i=0; i<1000; i++)
+        {
+            // Owned<IFile> ifile = createRemoteFile(ep, tmpfile);
+            ifile = createRemoteFile(ep, tmpfile);
+            bool ex = ifile->exists();
+            fprintf(stderr, "ex = %d\n", ex);
+            fflush(NULL);
+            if (ex)
+                cnt++;
+            ifile->Release();
+        }
+        if (cnt > 1)
+            DBGLOG("exists() test cnt: %d", cnt);
+
+    }
+};
+
+CPPUNIT_TEST_SUITE_REGISTRATION( RemoteExistsLoopUnitTest );
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION( RemoteExistsLoopUnitTest, "RemoteExistsLoopUnitTest" );
 
 #endif // _USE_CPPUNIT
