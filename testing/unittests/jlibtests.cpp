@@ -2461,4 +2461,46 @@ CPPUNIT_TEST_SUITE_REGISTRATION( JlibFriendlySizeTest );
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION( JlibFriendlySizeTest, "JlibFriendlySizeTest" );
 
 
+class JlibWriteSizeTest : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(JlibWriteSizeTest);
+        CPPUNIT_TEST(test);
+    CPPUNIT_TEST_SUITE_END();
+
+public:
+    void test()
+    {
+        fflush(NULL);
+        fprintf(stderr,"mck - JlibWriteSizeTest\n");
+
+        Owned<IFile> file = createIFile("large.test");
+        IFileIO *iofile = file->open(IFOcreate);
+
+        char *foo = (char *)calloc(1, 2346888606UL);
+        // char *foo = (char *)calloc(1, 201);
+        if (foo == NULL) {
+            fprintf(stderr, "Error allocaing mem\n");
+            return;
+        }
+
+        try
+        {
+            iofile->write(0, 2346888605UL, foo);
+            fprintf(stderr, "write ok\n");
+        }
+        catch (IException *E)
+        {
+            fprintf(stderr, "Error!  errno = %d\n", errno);
+            E->Release();
+        }
+
+        iofile->close();
+        iofile->Release();
+
+    }
+};
+
+CPPUNIT_TEST_SUITE_REGISTRATION( JlibWriteSizeTest );
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION( JlibWriteSizeTest, "JlibWriteSizeTest" );
+
 #endif // _USE_CPPUNIT
