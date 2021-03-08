@@ -23,6 +23,7 @@
 #ifdef _USE_CPPUNIT
 #include <memory>
 #include "jsem.hpp"
+#include "jisem.hpp"
 #include "jfile.hpp"
 #include "jdebug.hpp"
 #include "jset.hpp"
@@ -2416,5 +2417,72 @@ public:
 CPPUNIT_TEST_SUITE_REGISTRATION( JlibFriendlySizeTest );
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION( JlibFriendlySizeTest, "JlibFriendlySizeTest" );
 
+// ==================================================
+
+class TokenBucketTest : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TokenBucketTest);
+        CPPUNIT_TEST(test);
+    CPPUNIT_TEST_SUITE_END();
+
+public:
+
+    TokenBucketTest()
+    {
+        fflush(NULL);
+    }
+
+    void test()
+    {
+        fprintf(stdout, "TokenBuckTest ...\n");
+        fflush(stdout);
+
+        unsigned int kBPerPeriod = 1;
+        unsigned int periodMS = 4;
+        unsigned int bucketSize = 1;
+
+        TokenBucket tb(kBPerPeriod, periodMS, bucketSize);
+
+
+        int i = 0;
+
+        unsigned int start = msTick();
+
+        while (i < 1000)
+        {
+            Sleep(1);
+            i++;
+        }
+
+        unsigned int end = msTick();
+
+        fprintf(stdout, "elpased = %d\n", end - start);
+        fflush(stdout);
+
+        i = 0;
+
+        Sleep(15);
+
+        start = msTick();
+
+        while (i < 1000)
+        {
+            tb.wait(10);
+            Sleep(1);
+            i++;
+        }
+
+        end = msTick();
+
+        fprintf(stdout, "elpased TB = %d\n", end - start);
+        fflush(stdout);
+
+        fprintf(stdout, "TokenBuckTest end\n");
+        fflush(stdout);
+    }
+};
+
+CPPUNIT_TEST_SUITE_REGISTRATION( TokenBucketTest );
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION( TokenBucketTest, "TokenBucketTest" );
 
 #endif // _USE_CPPUNIT

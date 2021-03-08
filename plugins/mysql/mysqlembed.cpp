@@ -189,7 +189,9 @@ MySQLOptionDefinition options[] =
 #if (MYSQL_VERSION_ID >= 50711)
     addoption(MYSQL_OPT_SSL_MODE, ParamTypeUInt),
 #endif
-    { nullptr, (enum mysql_option) 0, ParamTypeNone }
+#if (MYSQL_VERSION_ID >= 80011)
+    addoption(MYSQL_OPT_RETRY_COUNT, ParamTypeUInt),
+#endif
 };
 
 static MySQLOptionDefinition &lookupOption(const char *optName)
