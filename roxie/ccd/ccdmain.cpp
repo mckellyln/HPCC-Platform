@@ -742,6 +742,7 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
         if (traceLevel && topology->hasProp("logging/@disabled"))
             topology->setPropBool("logging/@disabled", false);
         udpTraceLevel = topology->getPropInt("@udpTraceLevel", runOnce ? 0 : 1);
+        collateBackOff = topology->getPropInt("@collateBackOff", 0);
         roxiemem::setMemTraceLevel(topology->getPropInt("@memTraceLevel", runOnce ? 0 : 1));
         soapTraceLevel = topology->getPropInt("@soapTraceLevel", runOnce ? 0 : 1);
         miscDebugTraceLevel = topology->getPropInt("@miscDebugTraceLevel", 0);

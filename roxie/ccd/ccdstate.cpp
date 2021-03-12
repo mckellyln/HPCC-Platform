@@ -2755,6 +2755,12 @@ private:
                 udpTraceLevel = control->getPropInt("@level", 0);
                 topology->setPropInt("@udpTraceLevel", udpTraceLevel);
             }
+            else if (stricmp(queryName, "control:udpBackOff")==0)
+            {
+                collateBackOff = control->getPropInt("@val", 0);
+                topology->setPropInt("@collateBackOff", collateBackOff);
+                DBGLOG("Updating collateBackOff, new value: %d", collateBackOff);
+            }
             else if (stricmp(queryName, "control:unlockDali")==0)
             {
                 topology->setPropBool("@lockDali", false);

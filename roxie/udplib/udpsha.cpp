@@ -34,6 +34,7 @@ using roxiemem::IDataBufferManager;
 IDataBufferManager *bufferManager;
 
 unsigned udpTraceLevel = 0;
+unsigned collateBackOff = 0;
 unsigned udpTraceCategories = (unsigned) -1;
 unsigned udpFlowSocketsSize = 131072;
 unsigned udpLocalWriteSocketSize = 1024000;

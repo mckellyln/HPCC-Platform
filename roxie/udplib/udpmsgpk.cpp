@@ -64,10 +64,10 @@ class PackageSequencer : public CInterface, implements IInterface
     unsigned metaSize;
     unsigned headerSize;
     const void *header;
+    unsigned scans = 0;
 #ifdef _DEBUG
     unsigned numPackets = 0;
     unsigned maxSeqSeen = 0;
-    unsigned scans = 0;
     unsigned overscans = 0;
 #endif
 
@@ -176,8 +176,16 @@ public:
             }
             while (finger)
             {
+                if (collateBackOff > 0)
+                {
+                    scans++;
+                    if (scans > collateBackOff)
+                    {
+                        sched_yield();
+                        scans = 0;
+                    }
+                }
     #ifdef _DEBUG
-                scans++;
                 if (scans==1000000)
                 {
                     overscans++;

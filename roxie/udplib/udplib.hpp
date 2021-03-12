@@ -147,6 +147,7 @@ extern UDPLIB_API ISendManager *createAeronSendManager(unsigned dataPort, unsign
 extern UDPLIB_API RelaxedAtomic<unsigned> unwantedDiscarded;
 
 extern UDPLIB_API unsigned udpTraceLevel;
+extern UDPLIB_API unsigned collateBackOff;
 extern UDPLIB_API unsigned udpTraceCategories;
 extern UDPLIB_API unsigned udpOutQsPriority;
 extern UDPLIB_API void queryMemoryPoolStats(StringBuffer &memStats);
