@@ -282,6 +282,7 @@ extern bool useRemoteResources;
 extern bool checkFileDate;
 extern bool lazyOpen;
 extern bool useAeron;
+extern bool useEnet;
 extern bool ignoreOrphans;
 extern bool doIbytiDelay;
 extern bool copyResources;

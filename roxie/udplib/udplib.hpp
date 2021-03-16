@@ -154,6 +154,10 @@ extern UDPLIB_API void setAeronProperties(const IPropertyTree *config);
 extern UDPLIB_API IReceiveManager *createAeronReceiveManager(const SocketEndpoint &ep);
 extern UDPLIB_API ISendManager *createAeronSendManager(unsigned dataPort, unsigned numQueues, const IpAddress &myIP);
 
+extern UDPLIB_API void setEnetProperties(const IPropertyTree *config);
+extern UDPLIB_API IReceiveManager *createEnetReceiveManager(const SocketEndpoint &ep);
+extern UDPLIB_API ISendManager *createEnetSendManager(unsigned dataPort, unsigned numQueues, const IpAddress &myIP);
+
 extern UDPLIB_API RelaxedAtomic<unsigned> unwantedDiscarded;
 
 extern UDPLIB_API unsigned udpTraceLevel;
@@ -179,5 +183,8 @@ extern UDPLIB_API unsigned udpSnifferReadThreadPriority;
 extern UDPLIB_API unsigned udpSnifferSendThreadPriority;
 
 extern UDPLIB_API void stopAeronDriver();
+
+extern UDPLIB_API void EnetDeinit();
+extern UDPLIB_API int  EnetInit();
 
 #endif

@@ -43,6 +43,7 @@ void usage()
     printf(
         "--jumboFrames\n"
         "--useAeron\n"
+        "--useEnet\n"
         "--udpLocalWriteSocketSize nn\n"
         "--udpRetryBusySenders nn\n"
         "--maxPacketsPerSender nn\n"
@@ -78,6 +79,7 @@ bool simpleSequential = true;
 float slowNodeSkew = 1.0;
 unsigned numSortSlaves = 50;
 bool useAeron = false;
+bool useEnet = false;
 bool doRawTest = false;
 unsigned rawBufferSize = 1024;
 
@@ -182,8 +184,14 @@ public:
             SocketEndpoint myEP(7000, myNode.getIpAddress());
             rcvMgr.setown(createAeronReceiveManager(myEP));
         }
+        else if (useEnet)
+        {
+            SocketEndpoint myEP(7000, myNode.getIpAddress());
+            rcvMgr.setown(createEnetReceiveManager(myEP));
+        }
         else
             rcvMgr.setown(createReceiveManager(7000, 7001, 7002, 7003, multicastIP, udpQueueSize, maxPacketsPerSender));
+
         Owned<roxiemem::IRowManager> rowMgr = roxiemem::createRowManager(0, NULL, queryDummyContextLogger(), NULL, false);
         Owned<IMessageCollator> collator = rcvMgr->createMessageCollator(rowMgr, 1);
         unsigned lastReport = 0;
@@ -292,6 +300,8 @@ void testNxN()
     Owned <ISendManager> sendMgr;
     if (useAeron)
         sendMgr.setown(createAeronSendManager(7000, udpNumQs, myNode.getIpAddress()));
+    else if (useEnet)
+        sendMgr.setown(createEnetSendManager(7000, udpNumQs, myNode.getIpAddress()));
     else
         sendMgr.setown(createSendManager(7000, 7001, 7002, 7003, multicastIP, 100, udpNumQs, NULL));
     Receiver receiver;
@@ -622,7 +632,7 @@ int main(int argc, char * argv[] )
     queryStderrLogMsgHandler()->setMessageFields(MSGFIELD_time | MSGFIELD_thread | MSGFIELD_prefix);
 
     {
-        Owned<IComponentLogFileCreator> lf = createComponentLogFileCreator("UDPTRANSPORT");
+        Owned<IComponentLogFileCreator> lf = createComponentLogFileCreator(".", "UDPTRANSPORT");
         lf->setCreateAliasFile(false);
         lf->setRolling(false);
         lf->setAppend(false);
@@ -669,6 +679,15 @@ int main(int argc, char * argv[] )
             else if (strcmp(ip, "--useAeron")==0)
             {
                 useAeron = true;
+            }
+            else if (strcmp(ip, "--useEnet")==0)
+            {
+                if (!useAeron)
+                {
+                    useEnet = true;
+                    // lower default so we dont have to specify this on the cmd line
+                    udpLocalWriteSocketSize = 102400;
+                }
             }
             else if (strcmp(ip, "--rawSpeedTest")==0)
             {

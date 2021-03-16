@@ -41,4 +41,11 @@ if (NOT JLIB_ONLY)
           SET (CMAKE_CXX_FLAGS "${CMAKE_SAVED_AERON_CXX_FLAGS}")
       endif()      
    endif()
+
+   if (USE_ENET)
+      project (enet)
+      remove_definitions(-fvisibility=hidden)
+      HPCC_ADD_SUBDIRECTORY (enet)
+   endif()
+
 endif( )

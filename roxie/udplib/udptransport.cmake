@@ -59,3 +59,9 @@ if (USE_AERON)
     )
 endif()
 
+if (USE_ENET)
+    target_link_libraries ( udplib
+        enet
+    )
+endif()
+

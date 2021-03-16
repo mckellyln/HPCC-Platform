@@ -2781,6 +2781,21 @@ public:
 
 };
 
+class RoxieEnetSocketQueueManager : public RoxieSocketQueueManager
+{
+public:
+    RoxieEnetSocketQueueManager(unsigned _numWorkers) : RoxieSocketQueueManager(_numWorkers)
+    {
+        int srtn = EnetInit();
+        if (srtn)
+            throw MakeStringException(999, "Enet lib init failed");
+        unsigned dataPort = topology->getPropInt("@dataPort", CCD_DATA_PORT);
+        SocketEndpoint ep(dataPort, myNode.getIpAddress());
+        receiveManager.setown(createEnetReceiveManager(ep));
+        assertex(!myNode.getIpAddress().isNull());
+        sendManager.setown(createEnetSendManager(dataPort, fastLaneQueue ? 3 : 2, myNode.getIpAddress()));
+    }
+};
 
 #ifdef _MSC_VER
 #pragma warning( pop )
@@ -3176,6 +3191,8 @@ extern IRoxieOutputQueueManager *createOutputQueueManager(unsigned snifferChanne
         return new RoxieLocalQueueManager(numWorkers);
     else if (useAeron)
         return new RoxieAeronSocketQueueManager(numWorkers);
+    else if (useEnet)
+        return new RoxieEnetSocketQueueManager(numWorkers);
     else
         return new RoxieUdpSocketQueueManager(snifferChannel, numWorkers);
 

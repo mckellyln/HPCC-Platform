@@ -118,6 +118,7 @@ bool checkFileDate;
 bool lazyOpen;
 bool localAgent;
 bool useAeron;
+bool useEnet;
 bool ignoreOrphans;
 bool doIbytiDelay = true; 
 bool copyResources;
@@ -887,6 +888,8 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
             envInstallNASHooks(nas);
         }
         useAeron = topology->getPropBool("@useAeron", false);
+        if (!useAeron)
+            useEnet = topology->getPropBool("@useEnet", false);
         doIbytiDelay = topology->getPropBool("@doIbytiDelay", true);
         minIbytiDelay = topology->getPropInt("@minIbytiDelay", 2);
         initIbytiDelay = topology->getPropInt("@initIbytiDelay", 50);
@@ -959,7 +962,7 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
         udpFlowSocketsSize = topology->getPropInt("@udpFlowSocketsSize", 131072);
         udpLocalWriteSocketSize = topology->getPropInt("@udpLocalWriteSocketSize", 1024000);
 #ifndef _CONTAINERIZED
-        roxieMulticastEnabled = topology->getPropBool("@roxieMulticastEnabled", true) && !useAeron;   // enable use of multicast for sending requests to agents
+        roxieMulticastEnabled = topology->getPropBool("@roxieMulticastEnabled", true) && !useAeron && !useEnet;   // enable use of multicast for sending requests to agents
         udpSnifferEnabled = topology->getPropBool("@udpSnifferEnabled", roxieMulticastEnabled);
         if (udpSnifferEnabled && !roxieMulticastEnabled)
         {
@@ -1151,6 +1154,8 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
 #endif
         if (useAeron)
             setAeronProperties(topology);
+        else if (useEnet)
+            setEnetProperties(topology);
 
 #ifdef _CONTAINERIZED
         allQuerySetNames.append(roxieName);
@@ -1440,6 +1445,7 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
     perfMonHook.clear();
 #endif
     stopAeronDriver();
+    EnetDeinit();
     stopTopoThread();
 
     strdup("Make sure leak checking is working");
