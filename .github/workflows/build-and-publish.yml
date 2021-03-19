@@ -38,6 +38,8 @@ jobs:
       matrix:
         engine: ['ml', 'gnn', 'gnn-gpu']
     steps:
+    - name: Checkout
+      uses: actions/checkout@v2
     - name: Build
       uses: ./dockerfiles
       with:
