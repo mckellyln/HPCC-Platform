@@ -26,6 +26,7 @@
 #include "tsorts.hpp"
 #include "thmem.hpp"
 
+#include "securesocket.hpp"
 
 #ifdef _DEBUG
 //#define TRACE_UNIQUE
@@ -34,7 +35,6 @@
 //#define TRACE_PARTITION
 //#define TRACE_PARTITION_OVERFLOW
 #endif
-
 
 // This contains the original global merge method
 
@@ -46,6 +46,7 @@ class CMergeReadStream : public CSimpleInterface, public IRowStream
 protected:  
     IRowStream *stream;
     SocketEndpoint endpoint;
+    Owned<ISecureSocketContext> secureContextClient;
     void eos()
     {
         if (stream) {
@@ -63,7 +64,14 @@ public:
         LOG(MCthorDetailedDebugInfo, thorJob, "SORT Merge READ: Stream(%u) %s, pos=%" RCPF "d len=%" RCPF "u",streamno,url,startrec,numrecs);
         SocketEndpoint mergeep = targetep;
         mergeep.port+=SOCKETSERVERINC; 
-        stream = ConnectMergeRead(streamno,rowif,mergeep,startrec,numrecs);
+
+        // -------------------
+#ifdef _USE_MPTLS
+        secureContextClient.setown(createSecureSocketContext(ClientSocket));
+#endif // _USE_MPTLS
+        // -------------------
+
+        stream = ConnectMergeRead(streamno,rowif,mergeep,startrec,numrecs,secureContextClient);
         LOG(MCthorDetailedDebugInfo, thorJob, "SORT Merge READ: Stream(%u) connected to %s",streamno,url);
     }
     virtual ~CMergeReadStream()
@@ -274,6 +282,7 @@ protected: friend class CSortMerge;
     Linked<IThorRowInterfaces> rowif;
     CriticalSection rowifsect;
     Semaphore rowifsem;
+    Owned<ISecureSocketContext> secureContextServer;
 public:
     IMPLEMENT_IINTERFACE_USING(Thread)
 
@@ -333,6 +342,58 @@ public:
                 Owned<ISocket> socket = server->accept(true);
                 if (!socket)
                     break;
+
+                // --------------------------------
+#ifdef _USE_MPTLS
+                Owned<ISecureSocket> ssock;
+                if (!secureContextServer)
+                {
+                    StringBuffer pKey, cert;
+#if 0
+                    getSecretValue(pKey, "mplib", "mptls", "key", true);
+                    if (pKey.isEmpty())
+                    {
+                        StringBuffer errMsg("MP Connect Thread: failed to obtain key from secret ");
+                        errMsg.append("mplib:mptls:key");
+                        PROGLOG("%s", errMsg.str());
+                        sock->close();
+                        sock.clear();
+                        continue;
+                    }
+                    PROGLOG("key = <%s>", pKey.str());
+                    getSecretValue(cert, "mplib", "mptls", "cert", true);
+                    if (cert.isEmpty())
+                    {
+                        StringBuffer errMsg("MP Connect Thread: failed to obtain cert from secret ");
+                        errMsg.append("mplib:mptls:cert");
+                        PROGLOG("%s", errMsg.str());
+                        sock->close();
+                        sock.clear();
+                        continue;
+                    }
+                    PROGLOG("cert = <%s>", cert.str());
+#else
+                    pKey.append("/opt/HPCCSystems/secrets/mplib/mptls/key");
+                    cert.append("/opt/HPCCSystems/secrets/mplib/mptls/cert");
+#endif
+                    secureContextServer.setown(createSecureSocketContextEx(cert.str(), pKey.str(), nullptr, ServerSocket));
+                }
+                ssock.setown(secureContextServer->createSecureSocket(socket.getClear(), 10));
+                int status = ssock->secure_accept(10);
+                if (status < 0)
+                {
+                    socket->close();
+                    StringBuffer errmsg;
+                    errmsg.appendf("Secure accept failed: %d", status);
+                    throw createJSocketException(JSOCKERR_connection_failed, errmsg);
+                }
+                else
+                {
+                    DBGLOG("CSortTransferServerThread() - secure_accept ok");
+                }
+                socket.setown(ssock.getLink());
+#endif // _USE_MPTLS
+                // --------------------------------
 
                 rowcount_t poscount=0;
                 rowcount_t numrecs=0;

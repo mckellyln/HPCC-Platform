@@ -30,6 +30,7 @@
 #define MP_WAIT_FOREVER ((unsigned)-1)
 #define MP_ASYNC_SEND   ((unsigned)-2)
 
+#define _USE_MPTLS // MCK TLS WIP - needs to be a helm config setting
 
 interface ICommunicator: extends IInterface
 {

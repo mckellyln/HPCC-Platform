@@ -38,6 +38,7 @@ include_directories (
          ./..
          ./../slave 
          ./../../system/mp 
+         ./../../system/security/securesocket
          ./../graph 
          ./../../rtl/include 
          ./../../rtl/eclrtl 
@@ -64,6 +65,7 @@ target_link_libraries ( thorsort_lcr
         eclrtl
         thorhelper
         mp
+        securesocket
         dalibase
         graph_lcr
         roxiemem

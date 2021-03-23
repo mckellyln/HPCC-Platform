@@ -32,6 +32,7 @@
 #include "jsort.hpp"
 #include "mptag.hpp"
 #include "mpbase.hpp"
+#include "securesocket.hpp"
 
 interface ISortKeySerializer;
 interface IThorRowInterfaces;
@@ -73,7 +74,7 @@ interface ISocketRowWriter: extends IRowWriter
 
 class CActivityBase;
 THORSORT_API IThorSorter *CreateThorSorter(CActivityBase *activity, SocketEndpoint &ep,IDiskUsage *iDiskUsage,ICommunicator *clusterComm, mptag_t _mpTagRPC);
-IRowStream *ConnectMergeRead(unsigned id,IThorRowInterfaces *rowif,SocketEndpoint &nodeaddr,rowcount_t startrec,rowcount_t numrecs);
+IRowStream *ConnectMergeRead(unsigned id,IThorRowInterfaces *rowif,SocketEndpoint &nodeaddr,rowcount_t startrec,rowcount_t numrecs, ISecureSocketContext *secureContextClient=nullptr);
 ISocketRowWriter *ConnectMergeWrite(IThorRowInterfaces *rowif,ISocket *socket,size32_t bufsize,rowcount_t &startrec,rowcount_t &numrecs);
 #define SOCKETSERVERINC                    1
 #define NUMSLAVESOCKETS                    2

@@ -39,11 +39,14 @@
 #include "jqueue.tpp"
 #include "jsuperhash.hpp"
 #include "jmisc.hpp"
+#include "jsecrets.hpp"
 
 #include "mpcomm.hpp"
 #include "mpbuff.hpp"
 #include "mputil.hpp"
 #include "mplog.hpp"
+
+#include "securesocket.hpp"
 
 #ifdef _MSC_VER
 #pragma warning (disable : 4355)
@@ -444,6 +447,8 @@ class CMPConnectThread: public Thread
     Owned<IAllowListHandler> allowListCallback;
     void checkSelfDestruct(void *p,size32_t sz);
 
+    Owned<ISecureSocketContext> secureContextServer;
+
 public:
     CMPConnectThread(CMPServer *_parent, unsigned port, bool _listen);
     ~CMPConnectThread()
@@ -797,6 +802,7 @@ protected: friend class CMPPacketReader;
     unsigned numiter;
 #endif
 
+    Owned<ISecureSocketContext> secureContextClient;
 
     bool checkReconnect(CTimeMon &tm)
     {
@@ -839,7 +845,29 @@ protected: friend class CMPPacketReader;
                 if (remaining<10000)
                     remaining = 10000; // 10s min granularity for MP
                 newsock.setown(ISocket::connect_timeout(remoteep,remaining));
+
+                // --------------------------------
+#ifdef _USE_MPTLS
+                Owned<ISecureSocket> ssock;
+                if (!secureContextClient)
+                    secureContextClient.setown(createSecureSocketContext(ClientSocket));
+                ssock.setown(secureContextClient->createSecureSocket(newsock.getClear(), 10));
+                int status = ssock->secure_connect(10);
+                if (status < 0)
+                {
+                    exitException.setown(new CMPException(MPERR_connection_failed, remoteep));
+                    throw exitException.getLink();
+                }
+                else
+                {
+                    LOG(MCdebugInfo, unknownJob, "MP: secure_connect() ok");
+                }
+                newsock.setown(ssock.getLink());
+#endif // _USE_MPTLS
+                // --------------------------------
+
                 newsock->set_keep_alive(true);
+
 #ifdef _FULLTRACE
                 LOG(MCdebugInfo, unknownJob, "MP: connect after socket connect, retrycount = %d", retrycount);
 #endif
@@ -2065,20 +2093,11 @@ int CMPConnectThread::run()
 #endif
     while (running)
     {
-        ISocket *sock=NULL;
+        Owned<ISocket> sock;
         SocketEndpoint peerEp;
         try
         {
-            sock=listensock->accept(true, &peerEp);
-#ifdef _FULLTRACE       
-            StringBuffer s;
-            SocketEndpoint ep1;
-            if (sock)
-            {
-                sock->getPeerEndpoint(ep1);
-                PROGLOG("MP: Connect Thread: socket accepted from %s",ep1.getUrlStr(s).str());
-            }
-#endif
+            sock.setown(listensock->accept(true, &peerEp));
         }
         catch (IException *e)
         {
@@ -2089,7 +2108,67 @@ int CMPConnectThread::run()
         {
             try
             {
+                // --------------------------------
+#ifdef _USE_MPTLS
+                Owned<ISecureSocket> ssock;
+                if (!secureContextServer)
+                {
+                    StringBuffer pKey, cert;
+#if 0
+                    getSecretValue(pKey, "mplib", "mptls", "key", true);
+                    if (pKey.isEmpty())
+                    {
+                        StringBuffer errMsg("MP Connect Thread: failed to obtain key from secret ");
+                        errMsg.append("mplib:mptls:key");
+                        PROGLOG("%s", errMsg.str());
+                        sock->close();
+                        sock.clear();
+                        continue;
+                    }
+                    PROGLOG("key = <%s>", pKey.str());
+                    getSecretValue(cert, "mplib", "mptls", "cert", true);
+                    if (cert.isEmpty())
+                    {
+                        StringBuffer errMsg("MP Connect Thread: failed to obtain cert from secret ");
+                        errMsg.append("mplib:mptls:cert");
+                        PROGLOG("%s", errMsg.str());
+                        sock->close();
+                        sock.clear();
+                        continue;
+                    }
+                    PROGLOG("cert = <%s>", cert.str());
+#endif
+                    pKey.append("/opt/HPCCSystems/secrets/mplib/mptls/key");
+                    cert.append("/opt/HPCCSystems/secrets/mplib/mptls/cert");
+                    secureContextServer.setown(createSecureSocketContextEx(cert.str(), pKey.str(), nullptr, ServerSocket));
+                }
+                ssock.setown(secureContextServer->createSecureSocket(sock.getClear(), 10));
+                int status = ssock->secure_accept(10);
+                if (status < 0)
+                {
+                    StringBuffer errMsg("MP Connect Thread: failed to accept secure connection");
+                    PROGLOG("%s", errMsg.str());
+                    sock->close();
+                    sock.clear();
+                    continue;
+                }
+                else
+                {
+                    PROGLOG("MP: Connect Thread - secure_accept() ok");
+                }
+                sock.setown(ssock.getLink());
+#endif // _USE_MPTLS
+                // --------------------------------
+
+#ifdef _FULLTRACE
+                StringBuffer s;
+                SocketEndpoint ep1;
+                sock->getPeerEndpoint(ep1);
+                PROGLOG("MP: Connect Thread: socket accepted from %s",ep1.getUrlStr(s).str());
+#endif
+
                 sock->set_keep_alive(true);
+
                 size32_t rd;
                 SocketEndpoint _remoteep;
                 SocketEndpoint hostep;
@@ -2107,7 +2186,7 @@ int CMPConnectThread::run()
                         PROGLOG("%s", errMsg.str());
                     }
                     sock->close();
-                    sock->Release();
+                    sock.clear();
                     continue;
                 }
                 else
@@ -2124,7 +2203,7 @@ int CMPConnectThread::run()
                         peerEp.getUrlStr(errMsg);
                         FLLOG(MCoperatorWarning, unknownJob, "%s", errMsg.str());
                         sock->close();
-                        sock->Release();
+                        sock.clear();
                         continue;
                     }
                 }
@@ -2158,7 +2237,7 @@ int CMPConnectThread::run()
                         }
 
                         sock->close();
-                        sock->Release();
+                        sock.clear();
                         continue;
                     }
                 }
@@ -2191,7 +2270,7 @@ int CMPConnectThread::run()
                         PROGLOG("%s", errMsg.str());
                     }
                     sock->close();
-                    sock->Release();
+                    sock.clear();
                     continue;
                 }
 #ifdef _FULLTRACE       
@@ -2203,7 +2282,7 @@ int CMPConnectThread::run()
 #endif
                 checkSelfDestruct(&connectHdr.id[0],sizeof(connectHdr.id));
                 Owned<CMPChannel> channel = parent->lookup(_remoteep);
-                if (!channel->attachSocket(sock,_remoteep,hostep,false,&rd,addrval))
+                if (!channel->attachSocket(sock.getClear(),_remoteep,hostep,false,&rd,addrval))
                 {
 #ifdef _FULLTRACE       
                     PROGLOG("MP Connect Thread: lookup failed");
@@ -2225,11 +2304,12 @@ int CMPConnectThread::run()
             {
                 FLLOG(MCoperatorWarning, unknownJob, e,"MP Connect Thread: Failed to make connection(1)");
                 sock->close();
+                sock.clear();
                 e->Release();
             }
             try
             {
-                sock->Release();
+                sock.clear();
             }
             catch (IException *e)
             {

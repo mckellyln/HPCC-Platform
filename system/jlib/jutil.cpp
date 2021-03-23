@@ -2438,6 +2438,8 @@ jlib_decl bool querySecuritySettings(DAFSConnectCfg *_connectMethod,
     if (_port)
         *_port = DAFILESRV_PORT;//default
 
+    // MCK TLS WIP - should use a more consistent helm config setting for this, similar to mplib tls etc.
+
     const IProperties & conf = queryEnvironmentConf();
     StringAttr sslMethod;
     sslMethod.set(conf.queryProp("dfsUseSSL"));
