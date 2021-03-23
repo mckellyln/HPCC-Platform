@@ -34,6 +34,8 @@
 #include "workunit.hpp"
 #include "wujobq.hpp"
 
+#include "securesocket.hpp"
+
 #ifndef _CONTAINERIZED
 #include "environment.hpp"
 #endif
@@ -1756,7 +1758,7 @@ public:
         assertex(!initiateconv.get());
         SocketEndpoint ep = item->queryEndpoint();
         unsigned short port = (unsigned short)item->getPort();
-        initiateconv.setown(createSingletonSocketConnection(port));
+        initiateconv.setown(createSingletonSecureSocketConnection(port));
         if (!port)
             item->setPort(initiateconv->setRandomPort(WUJOBQ_BASE_PORT,WUJOBQ_PORT_NUM));
         initiatewu.set(item->queryWUID());
@@ -1800,7 +1802,7 @@ public:
                 if (item->isValidSession()) {
                     SocketEndpoint ep = item->queryEndpoint();
                     ep.port = item->getPort();
-                    Owned<IConversation> acceptconv = createSingletonSocketConnection(ep.port,&ep);
+                    Owned<IConversation> acceptconv = createSingletonSecureSocketConnection(ep.port,&ep);
                     if (acceptconv->connect(3*60*1000)) { // shouldn't need that long
                         retitem = item.getClear();
                         return acceptconv.getClear();
@@ -1841,7 +1843,7 @@ public:
             if (item->isValidSession()) {
                 SocketEndpoint ep = item->queryEndpoint();
                 ep.port = item->getPort();
-                Owned<IConversation> acceptconv = createSingletonSocketConnection(ep.port,&ep);
+                Owned<IConversation> acceptconv = createSingletonSecureSocketConnection(ep.port,&ep);
                 acceptconv->connect(3*60*1000); // connect then close should close other end
                 return true;
             }

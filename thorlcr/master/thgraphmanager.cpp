@@ -46,6 +46,7 @@
 #include "thgraphmanager.hpp"
 #include "roxiehelper.hpp"
 #include "environment.hpp"
+#include "securesocket.hpp"
 
 class CJobManager : public CSimpleInterface, implements IJobManager, implements IExceptionHandler
 {
@@ -175,6 +176,7 @@ class CJobManager : public CSimpleInterface, implements IJobManager, implements 
                 try
                 {
                     Owned<ISocket> client = sock->accept(true);
+                    // MCK TLS WIP - secure_accept()
                     if (client)
                     {
                         client->set_linger(-1);
@@ -651,7 +653,7 @@ void CJobManager::run()
                                 {
                                     SocketEndpoint ep = _item->queryEndpoint();
                                     ep.port = _item->getPort();
-                                    Owned<IConversation> acceptconv = createSingletonSocketConnection(ep.port,&ep);
+                                    Owned<IConversation> acceptconv = createSingletonSecureSocketConnection(ep.port,&ep);
                                     if (acceptconv->connect(60*1000)) // shouldn't need that long
                                     {
                                         acceptconv->set_keep_alive(true);

@@ -57,6 +57,7 @@ include_directories (
          ${CMAKE_BINARY_DIR}
          ${CMAKE_BINARY_DIR}/oss
          ./../../system/security/shared
+         ./../../system/security/securesocket
     )
 
 ADD_DEFINITIONS( -D_CONSOLE )
@@ -88,6 +89,7 @@ target_link_libraries (  thormaster_lcr
          graphmaster_lcr 
          activitymasters_lcr 
          swapnodelib
+         securesocket
     )
 
 

@@ -27,6 +27,7 @@
 #include "thsortu.hpp"
 #include "thactivityutil.ipp"
 #include "thexception.hpp"
+#include "securesocket.hpp"
 
 #define NUMSLAVEPORTS 2     // actually should be num MP tags
 

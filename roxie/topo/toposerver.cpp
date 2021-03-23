@@ -220,6 +220,7 @@ void doServer(ISocket *socket)
         try
         {
             Owned<ISocket> client = socket->accept();
+            // MCK TLS WIP - secure_accept() here ?  Does topology need to be secure or are we trying to prevent a DoS attack ?
             timeoutTopology();
             unsigned packetLen;
             client->read(&packetLen, 4);

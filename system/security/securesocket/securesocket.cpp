@@ -29,7 +29,6 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <signal.h>  
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -39,6 +38,7 @@
 #include <stddef.h>
 #include <errno.h>
 #endif
+#include <signal.h>
 
 //openssl
 #include <openssl/rsa.h>
@@ -61,6 +61,8 @@
 
 #include "jsmartsock.ipp"
 #include "securesocket.hpp"
+
+JSocketStatistics *SSTATS;
 
 Owned<ISecureSocketContext> server_securesocket_context;
 bool accept_selfsigned = false;
@@ -137,6 +139,9 @@ private:
     CStringSet* m_peers;
     int         m_loglevel;
     bool        m_isSecure;
+    size32_t    nextblocksize;
+    unsigned    blockflags;
+    unsigned    blocktimeoutms;
 private:
     StringBuffer& get_cn(X509* cert, StringBuffer& cn);
     bool verify_cert(X509* cert);
@@ -197,7 +202,7 @@ public:
     // 
     virtual int wait_write(unsigned timeout)
     {
-        throw MakeStringException(-1, "CSecureSocket::wait_write: not implemented");
+        return m_socket->wait_write(timeout);
     }
 
     //
@@ -216,7 +221,6 @@ public:
         throw MakeStringException(-1, "CSecureSocket::set_nagle: not implemented");
     }
 
-
     // set 'linger' time - time close will linger so that outstanding unsent data will be transmited
     //
     virtual void set_linger(int lingersecs)  
@@ -224,13 +228,12 @@ public:
         m_socket->set_linger(lingersecs);
     }
 
-
     //
     // Cancel accept operation and close socket
     //
     virtual void  cancel_accept() // not needed for UDP
     {
-        throw MakeStringException(-1, "CSecureSocket::cancel_accept: not implemented");
+        m_socket->cancel_accept();
     }
 
     //
@@ -286,38 +289,23 @@ public:
 
     // Block functions 
 
-    virtual void  set_block_mode (             // must be called before block operations
-                            unsigned flags,    // BF_* flags (must match receive_block)
-                          size32_t recsize=0,  // record size (required for rec compression)
-                            unsigned timeout=0 // timeout in msecs (0 for no timeout)
-                  ) 
-    {
-        throw MakeStringException(-1, "CSecureSocket::set_block_mode: not implemented");
-    }
-
-
+    virtual void  set_block_mode(                // must be called before block operations
+                            unsigned flags,      // BF_* flags (must match receive_block)
+                            size32_t recsize=0,  // record size (required for rec compression)
+                            unsigned timeout=0   // timeout in msecs (0 for no timeout)
+                  );
 
     virtual bool  send_block( 
-                            const void *blk,   // data to send 
+                            const void *blk,     // data to send
                             size32_t sz          // size to send (0 for eof)
-                  )
-    {
-        throw MakeStringException(-1, "CSecureSocket::send_block: not implemented");
-    }
+                  );
 
-    virtual size32_t receive_block_size ()     // get size of next block (always must call receive_block after) 
-    {
-        throw MakeStringException(-1, "CSecureSocket::receive_block_size: not implemented");
-    }
+    virtual size32_t receive_block_size();       // get size of next block (always must call receive_block after)
 
     virtual size32_t receive_block(
-                            void *blk,         // receive pointer 
+                            void *blk,           // receive pointer
                             size32_t sz          // max size to read (0 for sync eof) 
-                                               // if less than block size truncates block
-                  )
-    {
-        throw MakeStringException(-1, "CSecureSocket::receive_block: not implemented");
-    }
+                     );                          // if less than block size truncates block
 
     virtual void  close()
     {
@@ -344,6 +332,14 @@ public:
         size32_t avr = m_socket->avail_read();
         if (avr > 0)
         {
+            // MCK TODO This needs to be thought out and refactored
+            // Bytes here may be part of encrypted SSL record.
+            // If SSL_MODE_AUTO_RETRY set (and it is) then bytes
+            // here may also be from auto-renegotiation.
+            // If return 0 here, caller may think socket was closed
+            // If return >0 here, caller may block on next SSL_read()
+            return 1;
+            /* --------------------------------
             // bytes may be SSL/TLS protocol and not part of msg
             byte c[2];
             // TODO this may block ...
@@ -362,13 +358,42 @@ public:
                 errbuf[511] = '\0';
                 DBGLOG("SSL_peek (avail_read) returns error %d - %s", ret, errbuf);
             }
+            -------------------------------- */
         }
         return 0;
     }
 
-    virtual size32_t write_multiple(unsigned num,const void **buf, size32_t *size)
+    virtual size32_t write_multiple(unsigned num, const void **buf, size32_t *size)
     {
-        throw MakeStringException(-1, "CSecureSocket::write_multiple: not implemented");
+        if (num == 0)
+            return 0;
+
+        if (num == 1)
+        {
+            if (size[0] == 0)
+                return 0;
+            int wrtn = SSL_write(m_ssl, buf[0], size[0]);
+            if (wrtn < 0)
+                wrtn = 0;
+            // 0 is an error
+            return wrtn;
+        }
+
+        size32_t res = 0;
+        for (int i=0; i<num; i++)
+        {
+            if (size[i] > 0)
+            {
+                // non-tls version tries to write equal 64k chunks, but unless we set
+                // SSL_MODE_ENABLE_PARTIAL_WRITE, we should write each buf[i] entirely ...
+                int wrtn = SSL_write(m_ssl, buf[i], size[i]);
+                if (wrtn < 0)
+                    wrtn = 0;
+                // 0 is an error, should we stop or keep writing ?
+                res += wrtn;
+            }
+        }
+        return res;
     }
 
     virtual size32_t get_send_buffer_size() // get OS send buffer
@@ -410,7 +435,7 @@ public:
 
     virtual void set_keep_alive(bool set) // set option SO_KEEPALIVE
     {
-        throw MakeStringException(-1, "CSecureSocket::set_keep_alive: not implemented");
+        m_socket->set_keep_alive(set);
     }
 
     virtual size32_t udp_write_to(const SocketEndpoint &ep, void const* buf, size32_t size)
@@ -448,6 +473,12 @@ CSecureSocket::CSecureSocket(ISocket* sock, SSL_CTX* ctx, bool verify, bool addr
     {
         throw MakeStringException(-1, "Can't create ssl");
     }
+
+    // there is no MSG_NOSIGNAL or SO_NOSIGPIPE for SSL_write() ...
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN);
+#endif
+
     SSL_set_fd(m_ssl, sock->OShandle());
 }
 
@@ -467,6 +498,12 @@ CSecureSocket::CSecureSocket(int sockfd, SSL_CTX* ctx, bool verify, bool address
     {
         throw MakeStringException(-1, "Can't create ssl");
     }
+
+    // there is no MSG_NOSIGNAL or SO_NOSIGPIPE for SSL_write() ...
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN);
+#endif
+
     SSL_set_fd(m_ssl, sockfd);
 }
 
@@ -646,8 +683,8 @@ int CSecureSocket::secure_accept(int logLevel)
         return err;
     }
 
-    if (logLevel)
-        DBGLOG("SSL connection using %s", SSL_get_cipher(m_ssl));
+    if (logLevel > 2)
+        DBGLOG("SSL accept ok, using %s", SSL_get_cipher(m_ssl));
 
     if(m_verify)
     {
@@ -683,6 +720,8 @@ int CSecureSocket::secure_connect(int logLevel)
         throw MakeStringException(-1, "SSL_connect failed: %s", errbuf);
     }
     
+    if (logLevel > 2)
+        DBGLOG("SSL connect ok, using %s", SSL_get_cipher (m_ssl));
 
     // Currently only do fake verify - simply logging the subject and issuer
     // The verify parameter makes it possible for the application to verify only
@@ -692,10 +731,6 @@ int CSecureSocket::secure_connect(int logLevel)
         // Following two steps are optional and not required for
         // data exchange to be successful.
         
-        // Get the cipher - opt
-        if (logLevel)
-            DBGLOG("SSL connection using %s\n", SSL_get_cipher (m_ssl));
-
         // Get server's certificate (note: beware of dynamic allocation) - opt
         X509* server_cert = SSL_get_peer_certificate (m_ssl);
         bool verified = false;
@@ -819,16 +854,209 @@ void CSecureSocket::read(void* buf, size32_t min_size, size32_t max_size, size32
 
 size32_t CSecureSocket::write(void const* buf, size32_t size)
 {
+    if (size == 0)
+        return 0;
     int numwritten = SSL_write(m_ssl, buf, size);
+    if (numwritten < 0)
+        numwritten = 0;
+    // 0 is an error
     return numwritten;
 }
 
 size32_t CSecureSocket::writetms(void const* buf, size32_t size, unsigned timeoutms)
 {
     // timeoutms not implemented yet ...
+    if (size == 0)
+        return 0;
     int numwritten = SSL_write(m_ssl, buf, size);
+    if (numwritten < 0)
+        numwritten = 0;
+    // 0 is an error
     return numwritten;
 }
+
+// ----------------------------
+
+void CSecureSocket::set_block_mode(unsigned flags, size32_t recsize, unsigned _timeoutms)
+{
+    blockflags = flags;
+    nextblocksize = UINT_MAX;
+    blocktimeoutms = _timeoutms?_timeoutms:WAIT_FOREVER;
+}
+
+size32_t CSecureSocket::receive_block_size()
+{
+    // assumed always paired with receive_block
+    if (nextblocksize) {
+        if (blockflags&BF_SYNC_TRANSFER_PULL) {
+            bool eof=false;
+            write(&eof,sizeof(eof));
+        }
+        size32_t rd;
+        readtms(&nextblocksize,sizeof(nextblocksize),sizeof(nextblocksize),rd,blocktimeoutms);
+        _WINREV(nextblocksize);
+        if (nextblocksize==0) { // confirm eof
+            try {
+                bool confirm=true;
+                write(&confirm,sizeof(confirm));
+            }
+            catch (IJSOCK_Exception *e) {
+                if ((e->errorCode()!=JSOCKERR_broken_pipe)&&(e->errorCode()!=JSOCKERR_graceful_close))
+                    EXCLOG(e,"receive_block_size");
+                e->Release();
+            }
+        }
+        else if (blockflags&BF_SYNC_TRANSFER_PUSH) {  // leaves receiveblocksem clear
+#ifdef USERECVSEM
+            CSemProtect semprot; // this will catch exception in write
+            while (!semprot.wait(&receiveblocksem,&receiveblocksemowned,60*1000*5))
+                IWARNLOG("Receive block stalled");
+#endif
+            bool eof=false;
+            write(&eof,sizeof(eof));
+#ifdef USERECVSEM
+            semprot.clear();
+#endif
+        }
+    }
+    return nextblocksize;
+}
+
+size32_t CSecureSocket::receive_block(void *blk, size32_t maxsize)
+{
+#ifdef USERECVSEM
+    CSemProtect semprot; // this will catch exceptions
+#endif
+    size32_t sz = nextblocksize;
+    if (sz) {
+        if (sz==UINT_MAX) { // need to get size
+            if (!blk||!maxsize) {
+                if (blockflags&BF_SYNC_TRANSFER_PUSH) { // ignore block size
+                    size32_t rd;
+                    readtms(&nextblocksize,sizeof(nextblocksize),sizeof(nextblocksize),rd,blocktimeoutms);
+                }
+                if (blockflags&(BF_SYNC_TRANSFER_PULL|BF_SYNC_TRANSFER_PUSH)) { // signal eof
+                    bool eof=true;
+                    write(&eof,sizeof(eof));
+                    nextblocksize = 0;
+                    return 0;
+                }
+            }
+            sz = receive_block_size();
+            if (!sz)
+                return 0;
+        }
+        unsigned startt=usTick();   // include sem block but not initial handshake
+#ifdef USERECVSEM
+        if (blockflags&BF_SYNC_TRANSFER_PUSH)  // read_block_size sets semaphore
+            semprot.set(&receiveblocksem,&receiveblocksemowned);  // this will reset semaphore on exit
+#endif
+        nextblocksize = UINT_MAX;
+        size32_t rd;
+        if (sz<=maxsize) {
+            readtms(blk,sz,sz,rd,blocktimeoutms);
+        }
+        else { // truncate
+            readtms(blk,maxsize,maxsize,rd,blocktimeoutms);
+            sz -= maxsize;
+            void *tmp=malloc(sz);
+            readtms(tmp,sz,sz,rd,blocktimeoutms);
+            free(tmp);
+            sz = maxsize;
+        }
+        if (blockflags&BF_RELIABLE_TRANSFER) {
+            bool isok=true;
+            write(&isok,sizeof(isok));
+        }
+        unsigned elapsed = usTick()-startt;
+        SSTATS = getSocketStatPtr();
+        if (SSTATS)
+        {
+            SSTATS->blockrecvtime+=elapsed;
+            SSTATS->numblockrecvs++;
+            SSTATS->blockrecvsize+=sz;
+        }
+    }
+    return sz;
+}
+
+bool CSecureSocket::send_block(const void *blk, size32_t sz)
+{
+    unsigned startt=usTick();
+#ifdef TRACE_SLOW_BLOCK_TRANSFER
+    unsigned startt2 = startt;
+    unsigned startt3 = startt;
+#endif
+    if (blockflags&BF_SYNC_TRANSFER_PULL) {
+        size32_t rd;
+        bool eof = true;
+        readtms(&eof,sizeof(eof),sizeof(eof),rd,blocktimeoutms);
+        if (eof)
+            return false;
+#ifdef TRACE_SLOW_BLOCK_TRANSFER
+        startt2=usTick();
+#endif
+    }
+    if (!blk||!sz) {
+        sz = 0;
+        write(&sz,sizeof(sz));
+        try {
+            bool reply;
+            size32_t rd;
+            readtms(&reply,sizeof(reply),sizeof(reply),rd,blocktimeoutms);
+        }
+        catch (IJSOCK_Exception *e) {
+            if ((e->errorCode()!=JSOCKERR_broken_pipe)&&(e->errorCode()!=JSOCKERR_graceful_close))
+                EXCLOG(e,"CSocket::send_block");
+            e->Release();
+        }
+        return false;
+    }
+    size32_t rsz=sz;
+    _WINREV(rsz);
+    write(&rsz,sizeof(rsz));
+    if (blockflags&BF_SYNC_TRANSFER_PUSH) {
+#ifdef TRACE_SLOW_BLOCK_TRANSFER
+        startt2=usTick();
+#endif
+        size32_t rd;
+        bool eof = true;
+        readtms(&eof,sizeof(eof),sizeof(eof),rd,blocktimeoutms);
+        if (eof)
+            return false;
+#ifdef TRACE_SLOW_BLOCK_TRANSFER
+        startt3=usTick();
+#endif
+    }
+    write(blk,sz);
+    if (blockflags&BF_RELIABLE_TRANSFER) {
+        bool isok=false;
+        size32_t rd;
+        readtms(&isok,sizeof(isok),sizeof(isok),rd,blocktimeoutms);
+        if (!isok)
+            return false;
+    }
+    unsigned nowt = usTick();
+    unsigned elapsed = nowt-startt;
+    SSTATS = getSocketStatPtr();
+    if (SSTATS)
+    {
+        SSTATS->blocksendtime+=elapsed;
+        SSTATS->numblocksends++;
+        SSTATS->blocksendsize+=sz;
+        if (elapsed>SSTATS->longestblocksend) {
+            SSTATS->longestblocksend = elapsed;
+            SSTATS->longestblocksize = sz;
+        }
+    }
+#ifdef TRACE_SLOW_BLOCK_TRANSFER
+    if (elapsed>1000000*60)  // over 1min
+        IWARNLOG("send_block took %ds to %s  (%d,%d,%d)",elapsed/1000000,tracename,startt2-startt,startt3-startt2,nowt-startt3);
+#endif
+    return true;
+}
+
+// ----------------------------
 
 int verify_callback(int ok, X509_STORE_CTX *store)
 {
@@ -1567,7 +1795,7 @@ public:
     }
 };
 
-}
+} // namespace securesocket
 
 extern "C" {
 CriticalSection factoryCrit;
@@ -1764,4 +1992,101 @@ public:
 ISmartSocketFactory *createSecureSmartSocketFactory(const char *_socklist, bool _retry, unsigned _retryInterval, unsigned _dnsInterval)
 {
     return new CSecureSmartSocketFactory(_socklist, _retry, _retryInterval, _dnsInterval);
+}
+
+class CSingletonSecureSocketConnection: public CSingletonSocketConnection
+{
+public:
+    Owned<ISecureSocketContext> secureContextClient;
+    Owned<ISecureSocketContext> secureContextServer;
+
+    IMPLEMENT_IINTERFACE;
+
+    CSingletonSecureSocketConnection(SocketEndpoint &_ep)
+    {
+        ep = _ep;
+        state = Snone;
+        cancelling = false;
+    }
+
+    virtual ~CSingletonSecureSocketConnection()
+    {
+        try {
+            if (sock)
+                sock->close();
+        }
+        catch (IException *e) {
+            if (e->errorCode()!=JSOCKERR_graceful_close)
+                EXCLOG(e,"CSingletonSocketConnection close");
+            e->Release();
+        }
+    }
+
+    bool connect(unsigned timeoutms) override
+    {
+        bool srtn = CSingletonSocketConnection::connect(timeoutms);
+        if (srtn) // MCK TLS WIP
+        {
+            Owned<ISecureSocket> ssock;
+            if (!secureContextClient)
+                secureContextClient.setown(createSecureSocketContext(ClientSocket));
+            ssock.setown(secureContextClient->createSecureSocket(sock.getClear(), 10));
+            int status = ssock->secure_connect(10);
+            if (status < 0)
+            {
+                DBGLOG("CSingletonSecureSocketConnection: failure to establish secure connection, status = %d", status);
+                sock->close();
+                return false;
+            }
+            else
+            {
+                DBGLOG("CSingletonSecureSocketConnection: secure_connect() ok");
+                sock.setown(ssock.getLink());
+                return true;
+            }
+        }
+        return srtn;
+    }
+
+    bool accept(unsigned timeoutms) override
+    {
+        bool srtn = CSingletonSocketConnection::accept(timeoutms);
+        if (srtn) // MCK TLS WIP
+        {
+            Owned<ISecureSocket> ssock;
+            if (!secureContextServer)
+            {
+                StringBuffer pKey, cert;
+                pKey.append("/opt/HPCCSystems/secrets/mplib/mptls/key");
+                cert.append("/opt/HPCCSystems/secrets/mplib/mptls/cert");
+                secureContextServer.setown(createSecureSocketContextEx(cert.str(), pKey.str(), nullptr, ServerSocket));
+            }
+            ssock.setown(secureContextServer->createSecureSocket(sock.getClear(), 10));
+            int status = ssock->secure_accept(10);
+            if (status < 0)
+            {
+                DBGLOG("CSingletonSecureSocketConnection: failure to accept secure connection, status = %d", status);
+                sock->close();
+                return false;
+            }
+            else
+            {
+                DBGLOG("CSingletonSecureSocketConnection: secure_accept() ok");
+                sock.setown(ssock.getLink());
+                return true;
+            }
+        }
+        return srtn;
+    }
+
+};
+
+IConversation *createSingletonSecureSocketConnection(unsigned short port,SocketEndpoint *_ep)
+{
+    SocketEndpoint ep;
+    if (_ep)
+        ep = *_ep;
+    if (port)
+        ep.port = port;
+    return new CSingletonSecureSocketConnection(ep);
 }
