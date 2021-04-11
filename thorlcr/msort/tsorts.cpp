@@ -600,6 +600,7 @@ class CThorSorter : public CSimpleInterface, implements IThorSorter, implements 
     size32_t transferblocksize, midkeybufsize;
     CRuntimeStatisticCollection spillStats;
     rowcount_t globalCount = 0;
+    bool useTLS = false;
 
     class CRowToKeySerializer : public CSimpleInterfaceOf<IOutputRowSerializer>
     {
@@ -787,6 +788,7 @@ public:
         transferblocksize = TRANSFERBLOCKSIZE;
         isstable = true;
         stopping = false;
+        useTLS = true;
         threaded.start();
     }
     ~CThorSorter()

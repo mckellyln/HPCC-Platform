@@ -176,7 +176,7 @@ class CJobManager : public CSimpleInterface, implements IJobManager, implements 
                 try
                 {
                     Owned<ISocket> client = sock->accept(true);
-                    // MCK TLS WIP - secure_accept()
+                    // TLS TODO: secure_accept() on Thor debug socket if globally configured for mtls ...
                     if (client)
                     {
                         client->set_linger(-1);
@@ -653,6 +653,7 @@ void CJobManager::run()
                                 {
                                     SocketEndpoint ep = _item->queryEndpoint();
                                     ep.port = _item->getPort();
+                                    // MCK TLS WIP
                                     Owned<IConversation> acceptconv = createSingletonSecureSocketConnection(ep.port,&ep);
                                     if (acceptconv->connect(60*1000)) // shouldn't need that long
                                     {

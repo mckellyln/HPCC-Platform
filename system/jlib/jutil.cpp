@@ -2475,7 +2475,9 @@ jlib_decl bool querySecuritySettings(DAFSConnectCfg *_connectMethod,
     if (_port)
         *_port = DAFILESRV_PORT;//default
 
-    // MCK TLS WIP - should use a more consistent helm config setting for this, similar to mplib tls etc.
+    // TLS TODO: if _CONTAINERIZED check if globally configured for mtls instead of legacy env.conf file ...
+    //           and do not support any mixed modes, only TLSNone or TLSOnly
+    //           and if mtls is enabled, use cert/secret from that
 
     const IProperties & conf = queryEnvironmentConf();
     StringAttr sslMethod;

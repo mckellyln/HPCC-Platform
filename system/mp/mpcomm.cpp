@@ -805,7 +805,7 @@ protected: friend class CMPPacketReader;
     unsigned startxfer; 
     unsigned numiter;
 #endif
-
+    bool useTLS = false;
     Owned<ISecureSocketContext> secureContextClient;
 
     bool checkReconnect(CTimeMon &tm)
@@ -850,25 +850,26 @@ protected: friend class CMPPacketReader;
                     remaining = 10000; // 10s min granularity for MP
                 newsock.setown(ISocket::connect_timeout(remoteep,remaining));
 
-                // --------------------------------
-#ifdef _USE_MPTLS
-                Owned<ISecureSocket> ssock;
-                if (!secureContextClient)
-                    secureContextClient.setown(createSecureSocketContext(ClientSocket));
-                ssock.setown(secureContextClient->createSecureSocket(newsock.getClear(), 10));
-                int status = ssock->secure_connect(10);
-                if (status < 0)
+                if (useTLS)
                 {
-                    exitException.setown(new CMPException(MPERR_connection_failed, remoteep));
-                    throw exitException.getLink();
+                    Owned<ISecureSocket> ssock;
+                    if (!secureContextClient)
+                        secureContextClient.setown(createSecureSocketContext(ClientSocket));
+                    ssock.setown(secureContextClient->createSecureSocket(newsock.getClear(), 10));
+                    int status = ssock->secure_connect(10);
+                    if (status < 0)
+                    {
+                        exitException.setown(new CMPException(MPERR_connection_failed, remoteep));
+                        throw exitException.getLink();
+                    }
+#ifdef TLS_DEBUG
+                    else
+                    {
+                        LOG(MCdebugInfo, unknownJob, "MP: secure_connect() ok");
+                    }
+#endif
+                    newsock.setown(ssock.getLink());
                 }
-                else
-                {
-                    LOG(MCdebugInfo, unknownJob, "MP: secure_connect() ok");
-                }
-                newsock.setown(ssock.getLink());
-#endif // _USE_MPTLS
-                // --------------------------------
 
                 newsock->set_keep_alive(true);
 
@@ -1109,7 +1110,12 @@ public:
 
     Semaphore pingsem;
 
-    CMPChannel(CMPServer *_parent,SocketEndpoint &_remoteep);
+    CMPChannel(CMPServer *_parent,SocketEndpoint &_remoteep)
+    {
+        // TLS TODO: check if globally configured for mtls ...
+        useTLS = true;
+    }
+
     ~CMPChannel();
 
     void reset();
@@ -2112,57 +2118,58 @@ int CMPConnectThread::run()
         {
             try
             {
-                // --------------------------------
-#ifdef _USE_MPTLS
-                Owned<ISecureSocket> ssock;
-                if (!secureContextServer)
+                if (useTLS)
                 {
-                    StringBuffer pKey, cert;
+                    Owned<ISecureSocket> ssock;
+                    if (!secureContextServer)
+                    {
+                        StringBuffer pKey, cert;
 #if 0
-                    getSecretValue(pKey, "mplib", "mptls", "key", true);
-                    if (pKey.isEmpty())
-                    {
-                        StringBuffer errMsg("MP Connect Thread: failed to obtain key from secret ");
-                        errMsg.append("mplib:mptls:key");
-                        PROGLOG("%s", errMsg.str());
-                        sock->close();
-                        sock.clear();
-                        continue;
-                    }
-                    PROGLOG("key = <%s>", pKey.str());
-                    getSecretValue(cert, "mplib", "mptls", "cert", true);
-                    if (cert.isEmpty())
-                    {
-                        StringBuffer errMsg("MP Connect Thread: failed to obtain cert from secret ");
-                        errMsg.append("mplib:mptls:cert");
-                        PROGLOG("%s", errMsg.str());
-                        sock->close();
-                        sock.clear();
-                        continue;
-                    }
-                    PROGLOG("cert = <%s>", cert.str());
+                        getSecretValue(pKey, "mplib", "mptls", "key", true);
+                        if (pKey.isEmpty())
+                        {
+                            StringBuffer errMsg("MP Connect Thread: failed to obtain key from secret ");
+                            errMsg.append("mplib:mptls:key");
+                            PROGLOG("%s", errMsg.str());
+                            sock->close();
+                            sock.clear();
+                            continue;
+                        }
+                        PROGLOG("key = <%s>", pKey.str());
+                        getSecretValue(cert, "mplib", "mptls", "cert", true);
+                        if (cert.isEmpty())
+                        {
+                            StringBuffer errMsg("MP Connect Thread: failed to obtain cert from secret ");
+                            errMsg.append("mplib:mptls:cert");
+                            PROGLOG("%s", errMsg.str());
+                            sock->close();
+                            sock.clear();
+                            continue;
+                        }
+                        PROGLOG("cert = <%s>", cert.str());
 #endif
-                    pKey.append("/opt/HPCCSystems/secrets/mplib/mptls/key");
-                    cert.append("/opt/HPCCSystems/secrets/mplib/mptls/cert");
-                    secureContextServer.setown(createSecureSocketContextEx(cert.str(), pKey.str(), nullptr, ServerSocket));
+                        pKey.append("/opt/HPCCSystems/secrets/mplib/mptls/key");
+                        cert.append("/opt/HPCCSystems/secrets/mplib/mptls/cert");
+                        secureContextServer.setown(createSecureSocketContextEx(cert.str(), pKey.str(), nullptr, ServerSocket));
+                    }
+                    ssock.setown(secureContextServer->createSecureSocket(sock.getClear(), 10));
+                    int status = ssock->secure_accept(10);
+                    if (status < 0)
+                    {
+                        StringBuffer errMsg("MP Connect Thread: failed to accept secure connection");
+                        PROGLOG("%s", errMsg.str());
+                        sock->close();
+                        sock.clear();
+                        continue;
+                    }
+#ifdef TLS_DEBUG
+                    else
+                    {
+                        PROGLOG("MP: Connect Thread - secure_accept() ok");
+                    }
+#endif
+                    sock.setown(ssock.getLink());
                 }
-                ssock.setown(secureContextServer->createSecureSocket(sock.getClear(), 10));
-                int status = ssock->secure_accept(10);
-                if (status < 0)
-                {
-                    StringBuffer errMsg("MP Connect Thread: failed to accept secure connection");
-                    PROGLOG("%s", errMsg.str());
-                    sock->close();
-                    sock.clear();
-                    continue;
-                }
-                else
-                {
-                    PROGLOG("MP: Connect Thread - secure_accept() ok");
-                }
-                sock.setown(ssock.getLink());
-#endif // _USE_MPTLS
-                // --------------------------------
 
 #ifdef _FULLTRACE
                 StringBuffer s;
