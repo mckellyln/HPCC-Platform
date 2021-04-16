@@ -101,6 +101,7 @@ interface IMPServer : extends IInterface
     virtual void setOpt(MPServerOpts opt, const char *value) = 0;
     virtual void installAllowListCallback(IAllowListHandler *allowListCallback) = 0;
     virtual IAllowListHandler *queryAllowListCallback() const = 0;
+    virtual bool queryTLS() = 0;
 };
 
 extern mp_decl void startMPServer(unsigned port, bool paused=false, bool listen=false);

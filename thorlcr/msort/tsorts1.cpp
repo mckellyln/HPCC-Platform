@@ -46,7 +46,6 @@ class CMergeReadStream : public CSimpleInterface, public IRowStream
 protected:  
     IRowStream *stream;
     SocketEndpoint endpoint;
-    Owned<ISecureSocketContext> secureContextClient;
     void eos()
     {
         if (stream) {
@@ -56,7 +55,7 @@ protected:
     }
 public:
     IMPLEMENT_IINTERFACE_USING(CSimpleInterface);
-    CMergeReadStream(IThorRowInterfaces *rowif, unsigned streamno,SocketEndpoint &targetep, rowcount_t startrec, rowcount_t numrecs)
+    CMergeReadStream(IThorRowInterfaces *rowif, unsigned streamno,SocketEndpoint &targetep, rowcount_t startrec, rowcount_t numrecs, bool useTLS=false)
     {
         endpoint = targetep;
         char url[100];
@@ -65,13 +64,7 @@ public:
         SocketEndpoint mergeep = targetep;
         mergeep.port+=SOCKETSERVERINC; 
 
-        // -------------------
-#ifdef _USE_MPTLS
-        secureContextClient.setown(createSecureSocketContext(ClientSocket));
-#endif // _USE_MPTLS
-        // -------------------
-
-        stream = ConnectMergeRead(streamno,rowif,mergeep,startrec,numrecs,secureContextClient);
+        stream = ConnectMergeRead(streamno,rowif,mergeep,startrec,numrecs,useTLS);
         LOG(MCthorDetailedDebugInfo, thorJob, "SORT Merge READ: Stream(%u) connected to %s",streamno,url);
     }
     virtual ~CMergeReadStream()
@@ -343,57 +336,56 @@ public:
                 if (!socket)
                     break;
 
-                // --------------------------------
-#ifdef _USE_MPTLS
-                Owned<ISecureSocket> ssock;
-                if (!secureContextServer)
+                if (slave.queryTLS())
                 {
-                    StringBuffer pKey, cert;
+                    Owned<ISecureSocket> ssock;
+                    if (!secureContextServer)
+                    {
+                        StringBuffer pKey, cert;
 #if 0
-                    getSecretValue(pKey, "mplib", "mptls", "key", true);
-                    if (pKey.isEmpty())
-                    {
-                        StringBuffer errMsg("MP Connect Thread: failed to obtain key from secret ");
-                        errMsg.append("mplib:mptls:key");
-                        PROGLOG("%s", errMsg.str());
-                        sock->close();
-                        sock.clear();
-                        continue;
-                    }
-                    PROGLOG("key = <%s>", pKey.str());
-                    getSecretValue(cert, "mplib", "mptls", "cert", true);
-                    if (cert.isEmpty())
-                    {
-                        StringBuffer errMsg("MP Connect Thread: failed to obtain cert from secret ");
-                        errMsg.append("mplib:mptls:cert");
-                        PROGLOG("%s", errMsg.str());
-                        sock->close();
-                        sock.clear();
-                        continue;
-                    }
-                    PROGLOG("cert = <%s>", cert.str());
+                        getSecretValue(pKey, "mplib", "mptls", "key", true);
+                        if (pKey.isEmpty())
+                        {
+                            StringBuffer errMsg("MP Connect Thread: failed to obtain key from secret ");
+                            errMsg.append("mplib:mptls:key");
+                            PROGLOG("%s", errMsg.str());
+                            sock->close();
+                            sock.clear();
+                            continue;
+                        }
+                        PROGLOG("key = <%s>", pKey.str());
+                        getSecretValue(cert, "mplib", "mptls", "cert", true);
+                        if (cert.isEmpty())
+                        {
+                            StringBuffer errMsg("MP Connect Thread: failed to obtain cert from secret ");
+                            errMsg.append("mplib:mptls:cert");
+                            PROGLOG("%s", errMsg.str());
+                            sock->close();
+                            sock.clear();
+                            continue;
+                        }
+                        PROGLOG("cert = <%s>", cert.str());
 #else
-                    pKey.append("/opt/HPCCSystems/secrets/mplib/mptls/key");
-                    cert.append("/opt/HPCCSystems/secrets/mplib/mptls/cert");
+                        pKey.append("/opt/HPCCSystems/secrets/mplib/mptls/key");
+                        cert.append("/opt/HPCCSystems/secrets/mplib/mptls/cert");
 #endif
-                    secureContextServer.setown(createSecureSocketContextEx(cert.str(), pKey.str(), nullptr, ServerSocket));
+                        secureContextServer.setown(createSecureSocketContextEx(cert.str(), pKey.str(), nullptr, ServerSocket));
+                    }
+                    ssock.setown(secureContextServer->createSecureSocket(socket.getClear(), 10));
+                    int status = ssock->secure_accept(10);
+                    if (status < 0)
+                    {
+                        socket->close();
+                        StringBuffer errmsg;
+                        errmsg.appendf("Secure accept failed: %d", status);
+                        throw createJSocketException(JSOCKERR_connection_failed, errmsg);
+                    }
+                    else
+                    {
+                        DBGLOG("CSortTransferServerThread() - secure_accept ok");
+                    }
+                    socket.setown(ssock.getLink());
                 }
-                ssock.setown(secureContextServer->createSecureSocket(socket.getClear(), 10));
-                int status = ssock->secure_accept(10);
-                if (status < 0)
-                {
-                    socket->close();
-                    StringBuffer errmsg;
-                    errmsg.appendf("Secure accept failed: %d", status);
-                    throw createJSocketException(JSOCKERR_connection_failed, errmsg);
-                }
-                else
-                {
-                    DBGLOG("CSortTransferServerThread() - secure_accept ok");
-                }
-                socket.setown(ssock.getLink());
-#endif // _USE_MPTLS
-                // --------------------------------
 
                 rowcount_t poscount=0;
                 rowcount_t numrecs=0;
@@ -550,7 +542,7 @@ public:
                         readers.append(*slave.createMergeInputStream(sstart,snum));
                     }
                     else
-                        readers.append(*new CMergeReadStream(rowif,i,endpoints[i], sstart, snum));
+                        readers.append(*new CMergeReadStream(rowif,i,endpoints[i], sstart, snum, slave.queryTLS()));
                 }
             }
         }

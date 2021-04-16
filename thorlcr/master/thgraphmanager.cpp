@@ -653,8 +653,13 @@ void CJobManager::run()
                                 {
                                     SocketEndpoint ep = _item->queryEndpoint();
                                     ep.port = _item->getPort();
-                                    // MCK TLS WIP
-                                    Owned<IConversation> acceptconv = createSingletonSecureSocketConnection(ep.port,&ep);
+
+                                    Owned<IConversation> acceptconv;
+                                    if (mpServer->queryTLS())
+                                        acceptconv.setown(createSingletonSecureSocketConnection(ep.port,&ep));
+                                    else
+                                        acceptconv.setown(createSingletonSocketConnection(ep.port,&ep));
+
                                     if (acceptconv->connect(60*1000)) // shouldn't need that long
                                     {
                                         acceptconv->set_keep_alive(true);

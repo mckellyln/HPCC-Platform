@@ -503,6 +503,7 @@ protected:
 public:
     bool checkclosed;
     bool tryReopenChannel = false;
+    bool useTLS = false;
 
 // packet handlers
     PingPacketHandler           *pingpackethandler;         // TAG_SYS_PING
@@ -600,6 +601,10 @@ public:
     virtual IAllowListHandler *queryAllowListCallback() const override
     {
         return connectthread->queryAllowListCallback();
+    }
+    virtual bool queryTLS() override
+    {
+        return useTLS;
     }
 };
 
@@ -805,7 +810,6 @@ protected: friend class CMPPacketReader;
     unsigned startxfer; 
     unsigned numiter;
 #endif
-    bool useTLS = false;
     Owned<ISecureSocketContext> secureContextClient;
 
     bool checkReconnect(CTimeMon &tm)
@@ -850,7 +854,7 @@ protected: friend class CMPPacketReader;
                     remaining = 10000; // 10s min granularity for MP
                 newsock.setown(ISocket::connect_timeout(remoteep,remaining));
 
-                if (useTLS)
+                if (parent->useTLS)
                 {
                     Owned<ISecureSocket> ssock;
                     if (!secureContextClient)
@@ -1110,11 +1114,7 @@ public:
 
     Semaphore pingsem;
 
-    CMPChannel(CMPServer *_parent,SocketEndpoint &_remoteep)
-    {
-        // TLS TODO: check if globally configured for mtls ...
-        useTLS = true;
-    }
+    CMPChannel(CMPServer *_parent,SocketEndpoint &_remoteep);
 
     ~CMPChannel();
 
@@ -2049,6 +2049,10 @@ CMPConnectThread::CMPConnectThread(CMPServer *_parent, unsigned port, bool _list
     LOG(MCdebugInfo, unknownJob, "MP Connect Thread Init Port = %d", port);
 #endif
     running = false;
+
+    // TODO: determine here if useTLS should be set from config ...
+    parent->useTLS = true;
+    DBGLOG("mck - determine if we should use mptls here ...");
 }
 
 void CMPConnectThread::checkSelfDestruct(void *p,size32_t sz)
@@ -2118,7 +2122,7 @@ int CMPConnectThread::run()
         {
             try
             {
-                if (useTLS)
+                if (parent->useTLS)
                 {
                     Owned<ISecureSocket> ssock;
                     if (!secureContextServer)

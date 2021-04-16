@@ -788,7 +788,7 @@ public:
         transferblocksize = TRANSFERBLOCKSIZE;
         isstable = true;
         stopping = false;
-        useTLS = true;
+        useTLS = activity->queryMPServer().queryTLS();
         threaded.start();
     }
     ~CThorSorter()
@@ -1323,6 +1323,10 @@ public:
         return spillStats.getStatisticValue(kind);
     }
     virtual rowcount_t getGlobalCount() const { return globalCount; }
+    virtual bool queryTLS() override
+    {
+        return useTLS;
+    }
 };
 
 

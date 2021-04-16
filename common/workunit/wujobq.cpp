@@ -1758,6 +1758,7 @@ public:
         assertex(!initiateconv.get());
         SocketEndpoint ep = item->queryEndpoint();
         unsigned short port = (unsigned short)item->getPort();
+        // TODO: MCK TLS WIP
         initiateconv.setown(createSingletonSecureSocketConnection(port));
         if (!port)
             item->setPort(initiateconv->setRandomPort(WUJOBQ_BASE_PORT,WUJOBQ_PORT_NUM));
@@ -1802,6 +1803,7 @@ public:
                 if (item->isValidSession()) {
                     SocketEndpoint ep = item->queryEndpoint();
                     ep.port = item->getPort();
+                    // TODO: MCK TLS WIP
                     Owned<IConversation> acceptconv = createSingletonSecureSocketConnection(ep.port,&ep);
                     if (acceptconv->connect(3*60*1000)) { // shouldn't need that long
                         retitem = item.getClear();
@@ -1843,6 +1845,7 @@ public:
             if (item->isValidSession()) {
                 SocketEndpoint ep = item->queryEndpoint();
                 ep.port = item->getPort();
+                // TODO: MCK TLS WIP
                 Owned<IConversation> acceptconv = createSingletonSecureSocketConnection(ep.port,&ep);
                 acceptconv->connect(3*60*1000); // connect then close should close other end
                 return true;

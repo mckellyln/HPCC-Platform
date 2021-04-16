@@ -74,7 +74,7 @@ interface ISocketRowWriter: extends IRowWriter
 
 class CActivityBase;
 THORSORT_API IThorSorter *CreateThorSorter(CActivityBase *activity, SocketEndpoint &ep,IDiskUsage *iDiskUsage,ICommunicator *clusterComm, mptag_t _mpTagRPC);
-IRowStream *ConnectMergeRead(unsigned id,IThorRowInterfaces *rowif,SocketEndpoint &nodeaddr,rowcount_t startrec,rowcount_t numrecs, ISecureSocketContext *secureContextClient=nullptr);
+IRowStream *ConnectMergeRead(unsigned id,IThorRowInterfaces *rowif,SocketEndpoint &nodeaddr,rowcount_t startrec,rowcount_t numrecs, bool useTLS=false);
 ISocketRowWriter *ConnectMergeWrite(IThorRowInterfaces *rowif,ISocket *socket,size32_t bufsize,rowcount_t &startrec,rowcount_t &numrecs);
 #define SOCKETSERVERINC                    1
 #define NUMSLAVESOCKETS                    2
@@ -95,6 +95,7 @@ interface ISortSlaveBase  // for global merging
     virtual size32_t getTransferBlockSize() = 0;
     virtual unsigned getTransferPort() = 0;
     virtual void startMerging(IArrayOf<IRowStream> &readers, rowcount_t _totalrows) = 0;
+    virtual bool queryTLS() = 0;
 };
 
 

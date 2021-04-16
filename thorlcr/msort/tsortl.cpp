@@ -86,29 +86,30 @@ struct TransferStreamHeader
 };
 
 
-static ISocket *DoConnect(SocketEndpoint &nodeaddr, ISecureSocketContext *secureContextClient)
+static ISocket *DoConnect(SocketEndpoint &nodeaddr, bool useTLS)
 {
     Owned<ISocket> newsock = ISocket::connect_wait(nodeaddr,CONNECTTIMEOUT*1000);
 
-    // --------------------------------
-#ifdef _USE_MPTLS
-    Owned<ISecureSocket> ssock;
-    ssock.setown(secureContextClient->createSecureSocket(newsock.getClear(), 10));
-    int status = ssock->secure_connect(10);
-    if (status < 0)
+    if (useTLS)
     {
-        newsock->close();
-        StringBuffer errmsg;
-        errmsg.appendf("Secure connect failed: %d", status);
-        throw createJSocketException(JSOCKERR_connection_failed, errmsg);
+        Owned<ISecureSocketContext> secureContextClient;
+        Owned<ISecureSocket> ssock;
+        secureContextClient.setown(createSecureSocketContext(ClientSocket));
+        ssock.setown(secureContextClient->createSecureSocket(newsock.getClear(), 10));
+        int status = ssock->secure_connect(10);
+        if (status < 0)
+        {
+            newsock->close();
+            StringBuffer errmsg;
+            errmsg.appendf("Secure connect failed: %d", status);
+            throw createJSocketException(JSOCKERR_connection_failed, errmsg);
+        }
+        else
+        {
+            LOG(MCthorDetailedDebugInfo, thorJob, "secure_connect() ok");
+        }
+        newsock.setown(ssock.getLink());
     }
-    else
-    {
-        LOG(MCthorDetailedDebugInfo, thorJob, "secure_connect() ok");
-    }
-    newsock.setown(ssock.getLink());
-#endif // _USE_MPTLS
-    // --------------------------------
 
     return newsock.getClear();
 }
@@ -310,9 +311,9 @@ public:
 };
 
 
-IRowStream *ConnectMergeRead(unsigned id, IThorRowInterfaces *rowif,SocketEndpoint &nodeaddr,rowcount_t startrec,rowcount_t numrecs, ISecureSocketContext *secureContextClient)
+IRowStream *ConnectMergeRead(unsigned id, IThorRowInterfaces *rowif,SocketEndpoint &nodeaddr,rowcount_t startrec,rowcount_t numrecs, bool useTLS)
 {
-    Owned<ISocket> socket = DoConnect(nodeaddr, secureContextClient);
+    Owned<ISocket> socket = DoConnect(nodeaddr, useTLS);
     TransferStreamHeader hdr(startrec, numrecs, id);
 #ifdef _FULL_TRACE
     StringBuffer s;
