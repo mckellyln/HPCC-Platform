@@ -2667,11 +2667,67 @@ public:
         queryIdFromQuerySetWuid(destQuerySet, wuid, queryName, existingQueryId);
         if (existingQueryId.length())
         {
+            if (true) // MCK - add or overwrite query options ...
+            {
+                Owned<IPropertyTree> destQuery = getQueryById(destQuerySet, existingQueryId.str());
+                if (destQuery)
+                {
+                    /*
+                     * possible properties to check for ...
+                     *
+                    void gatherQuerySetQueryDetails(..)
+                    {
+                        queryInfo->setDll(query->queryProp("@dll"));
+                        queryInfo->setWuid(query->queryProp("@wuid"));
+                        queryInfo->setName(query->queryProp("@name"));
+                        queryInfo->setId(query->queryProp("@id"));
+                        queryInfo->setSuspended(query->getPropBool("@suspended", false));
+
+                        if (query->hasProp("@memoryLimit"))
+                        {
+                            StringBuffer s;
+                            memoryLimitStringFromUInt64(s, query->getPropInt64("@memoryLimit"));
+                            queryInfo->setMemoryLimit(s);
+                        }
+                        if (query->hasProp("@timeLimit"))
+                            queryInfo->setTimeLimit(query->getPropInt("@timeLimit"));
+                        if (query->hasProp("@warnTimeLimit"))
+                            queryInfo->setWarnTimeLimit(query->getPropInt("@warnTimeLimit"));
+                        if (query->hasProp("@priority"))
+                            queryInfo->setPriority(getQueryPriorityName(query->getPropInt("@priority")));
+                        if (query->hasProp("@comment"))
+                            queryInfo->setComment(query->queryProp("@comment"));
+                        if (query->hasProp("@snapshot"))
+                            queryInfo->setSnapshot(query->queryProp("@snapshot"));
+                        double version = context.getClientVersion();
+                        if (version >= 1.46)
+                        {
+                            queryInfo->setPublishedBy(query->queryProp("@publishedBy"));
+                            queryInfo->setIsLibrary(query->getPropBool("@isLibrary"));
+                        }
+                        if (queriesOnCluster)
+                        {
+                            IArrayOf<IEspClusterQueryState> clusters;
+                            addClusterQueryStates(queriesOnCluster, cluster, query->queryProp("@id"), clusters, version);
+                            queryInfo->setClusters(clusters);
+                        }
+                    }
+                    */
+
+                    const char *priStr = query->queryProp("priority");
+                    if (priStr)
+                        DBGLOG("mck - priStr: %s", priStr);
+                    else
+                        DBGLOG("mck - priStr: NULL");
+                }
+            }
+
             existingQueryIds.append(existingQueryId.str());
             if (makeActive)
                 activateQuery(destQuerySet, ACTIVATE_SUSPEND_PREVIOUS, queryName, existingQueryId.str(), context->queryUserId());
             return;
         }
+
         StringBuffer newQueryId;
         Owned<IWorkUnit> workunit = factory->updateWorkUnit(wuid);
         addQueryToQuerySet(workunit, destQuerySet, queryName, makeActive ? ACTIVATE_SUSPEND_PREVIOUS : DO_NOT_ACTIVATE, newQueryId, context->queryUserId());
@@ -2686,6 +2742,16 @@ public:
                 if (!destQuery->hasProp(atname))
                     destQuery->setProp(atname, aiter->queryValue());
             }
+
+            if (true) // MCK - add or overwrite query options ...
+            {
+                const char *priStr = query->queryProp("priority");
+                if (priStr)
+                    DBGLOG("mck - priStr: %s", priStr);
+                else
+                    DBGLOG("mck - priStr: NULL");
+            }
+
             if (cloneFilesEnabled && wufiles)
                 wufiles->addFilesFromQuery(workunit, pm, newQueryId);
         }
