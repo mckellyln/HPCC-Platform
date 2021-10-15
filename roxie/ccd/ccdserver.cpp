@@ -1484,7 +1484,7 @@ public:
             {
                 if (state==STATEstarted || state==STATEstarting)
                 {
-                    if (ctx->queryServerContext()->okToLogStartStopError()) // && traceLevel ?
+                    if (ctx->queryServerContext() && ctx->queryServerContext()->okToLogStartStopError()) // && traceLevel ?
                     {
                         VStringBuffer err("STATE: activity %d reset without stop", activityId);
                         ctx->queryCodeContext()->addWuException(err.str(), ROXIE_INTERNAL_ERROR, SeverityError, "roxie");
