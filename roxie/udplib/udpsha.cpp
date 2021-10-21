@@ -130,18 +130,18 @@ void queue_t::pushOwn(DataBuffer *buf)
 {
     // Could probably be done lock-free, which given one thread using this is high priority might avoid some
     // potential priority-inversion issues. Or we might consider using PI-aware futexes here?
-    assert(!buf->msgNext);
+    assertex(!buf->msgNext);
     {
         CriticalBlock b(c_region);
         if (tail)
         {
-            assert(head);
-            assert(!tail->msgNext);
+            assertex(head);
+            assertex(!tail->msgNext);
             tail->msgNext = buf;
         }
         else
         {
-            assert(!head);
+            assertex(!head);
             head = buf;
         }
         tail = buf;
@@ -169,7 +169,7 @@ DataBuffer *queue_t::pop(bool block)
         head = head->msgNext;
         if (!head)
         {
-            assert(!count);
+            assertex(!count);
             tail = nullptr;
         }
         ret->msgNext = nullptr;
@@ -203,7 +203,7 @@ unsigned queue_t::removeData(const void *key, PKT_CMP_FUN pkCmpFn)
                     finger = finger->msgNext;
                     if (prev==nullptr)
                     {
-                        assert(head==temp);
+                        assertex(head==temp);
                         head = finger;
                     }
                     else
