@@ -29,6 +29,7 @@ extern jlib_decl void ThreadYield();
 extern jlib_decl void spinUntilReady(atomic_t &value);
 extern jlib_decl void spinUntilReady(std::atomic_uint &value);
 
+#define SPINLOCK_USE_MUTEX // mck for testing
 
 #ifdef _DEBUG
 //#define SPINLOCK_USE_MUTEX // for testing

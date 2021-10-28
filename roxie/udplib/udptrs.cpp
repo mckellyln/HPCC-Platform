@@ -434,7 +434,11 @@ public:
                     data_socket->write(encryptBuffer.toByteArray(), encryptBuffer.length());
                 }
                 else
+                {
+                    if (length > DATA_PAYLOAD)
+                        DBGLOG("mck - length (%u) exceeds DATA_PAYLOAD (%lu)", length, DATA_PAYLOAD);
                     data_socket->write(buffer->data, length);
+                }
                 dataPacketsSent++;
             }
             catch(IException *e)
@@ -672,7 +676,7 @@ class CSendManager : implements ISendManager, public CInterface
             if (udpTraceLevel > 0)
                 DBGLOG("UdpSender: send_resend_flow started");
 #ifdef __linux__
-            setLinuxThreadPriority(2);
+            setLinuxThreadPriority(3);
 #endif
             unsigned timeout = udpRequestToSendTimeout;
             while (running)
@@ -881,7 +885,7 @@ class CSendManager : implements ISendManager, public CInterface
             if (udpTraceLevel > 0)
                 DBGLOG("UdpSender: send_data started");
         #ifdef __linux__
-            setLinuxThreadPriority(1); // MORE - windows? Is this even a good idea? Must not send faster than receiver can pull off the socket
+            setLinuxThreadPriority(4); // MORE - windows? Is this even a good idea? Must not send faster than receiver can pull off the socket
         #endif
             UdpPermitToSendMsg permit;
             while (running) 

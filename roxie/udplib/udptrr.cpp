@@ -424,7 +424,7 @@ class CReceiveManager : implements IReceiveManager, public CInterface
         {
             DBGLOG("UdpReceiver: receive_receive_flow started");
         #ifdef __linux__
-            setLinuxThreadPriority(3);
+            setLinuxThreadPriority(2);
         #else
             adjustPriority(1);
         #endif
@@ -547,8 +547,8 @@ class CReceiveManager : implements IReceiveManager, public CInterface
                     {
                         if (udpTraceFlow)
                         {
-                            StringBuffer s;
-                            DBGLOG("All senders blocked by resend buffers");
+                            // StringBuffer s;
+                            DBGLOG("mck - All senders blocked by resend buffers: %u %u %u %u", slots, maxSlotsPerSender, pendingRequests.length(), pendingPermits.length());
                         }
                         timeout = 1; // Hopefully one of the senders should unblock soon
                     }
@@ -613,7 +613,7 @@ class CReceiveManager : implements IReceiveManager, public CInterface
         {
             DBGLOG("UdpReceiver: receive_data started");
         #ifdef __linux__
-            setLinuxThreadPriority(4);
+            setLinuxThreadPriority(2);
         #else
             adjustPriority(2);
         #endif

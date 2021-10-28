@@ -3240,6 +3240,14 @@ void throwRemoteException(IMessageUnpackCursor *extra)
     throwUnexpected();
 }
 
+static unsigned mckGNUCalls = 0;
+static unsigned mckGNUTime  = 0;
+static unsigned mckGNUTime1 = 0;
+static unsigned mckGNUTime2 = 0;
+static unsigned mckGNUTime3 = 0;
+static unsigned mckGNUTime4 = 0;
+static unsigned mckLastPTime = msTick();
+
 class CRemoteResultAdaptor : implements IEngineRowStream, implements IFinalRoxieInput, implements IExceptionHandler, public CInterface
 {
     friend class CRemoteResultMerger;
@@ -4597,6 +4605,10 @@ public:
 
     void getNextUnpacker()
     {
+        mckGNUCalls++;
+        unsigned mckSrtTime = msTick();
+        unsigned nowT = 0;
+
         mu.clear();
         unsigned ctxTraceLevel = activity.queryLogCtx().queryTraceLevel();
         unsigned timeout = remoteId.isSLAPriority() ? slaTimeout : (remoteId.isHighPriority() ? highTimeout : lowTimeout);
@@ -4617,6 +4629,10 @@ public:
             activity.queryContext()->checkAbort();
             if (anyActivity)
                 lastActivity = msTick();
+
+            nowT = msTick();
+            mckGNUTime1 += (nowT - mckSrtTime);
+
             if (mr)
             {
                 unsigned roxieHeaderLen;
@@ -4630,10 +4646,17 @@ public:
                     activity.queryLogCtx().CTXLOG("getNextUnpacker got packet %s", header.toString(s).str());
                 }
 
+                nowT = msTick();
+                mckGNUTime2 += (nowT - mckSrtTime);
+
                 CriticalBlock b(pendingCrit);
+
+                nowT = msTick();
+                mckGNUTime3 += (nowT - mckSrtTime);
+
                 unsigned idx = 0;
                 IRoxieServerQueryPacket *original = NULL;
-                IRoxieQueryPacket *op;
+                IRoxieQueryPacket *op = NULL;
                 while (pending.isItem(idx))
                 {
                     original = &pending.item(idx);
@@ -4643,6 +4666,10 @@ public:
                     original = NULL;
                     idx++;
                 }
+
+                nowT = msTick();
+                mckGNUTime4 += (nowT - mckSrtTime);
+
                 if (!original || original->hasResult())
                 {
                     switch (header.activityId)
@@ -4823,8 +4850,9 @@ public:
                             StringBuffer s;
                             activity.queryLogCtx().CTXLOG("Exception on query %s", header.toString(s).str());
                         }
-                        op->queryHeader().noteException(header.retries);
-                        if (op->queryHeader().allChannelsFailed())
+                        if (op)
+                            op->queryHeader().noteException(header.retries);
+                        if (op && op->queryHeader().allChannelsFailed())
                         {
                             activity.queryLogCtx().CTXLOG("Multiple exceptions on query - aborting");
                             Owned<IMessageUnpackCursor> exceptionData = mr->getCursor(rowManager);
@@ -4839,7 +4867,8 @@ public:
                             StringBuffer s;
                             activity.queryLogCtx().CTXLOG("ROXIE_ALIVE: %s", header.toString(s).str());
                         }
-                        op->queryHeader().noteAlive(header.retries & ROXIE_RETRIES_MASK);
+                        if (op)
+                            op->queryHeader().noteAlive(header.retries & ROXIE_RETRIES_MASK);
                         // Leave it on pending queue in original location
                         break;
 
@@ -4866,34 +4895,40 @@ public:
                                 throwUnexpected();
                             }
 
-                            MemoryBuffer nextQuery;
-                            nextQuery.append(sizeof(RoxiePacketHeader), &header);
-                            nextQuery.append(op->getTraceLength(), op->queryTraceInfo());
-                            nextQuery.append(metaLen, metaData);
-                            nextQuery.append(op->getContextLength(), op->queryContextData());
-                            if (resendSequence == CONTINUESEQUENCE_MAX)
+                            if (op)
                             {
-                                activity.queryLogCtx().CTXLOG("ERROR: Continuation sequence wrapped"); // shouldn't actually matter.... but suggests a very iffy query!
-                                resendSequence = 1;
+                                MemoryBuffer nextQuery;
+                                nextQuery.append(sizeof(RoxiePacketHeader), &header);
+                                nextQuery.append(op->getTraceLength(), op->queryTraceInfo());
+                                nextQuery.append(metaLen, metaData);
+                                nextQuery.append(op->getContextLength(), op->queryContextData());
+                                if (resendSequence == CONTINUESEQUENCE_MAX)
+                                {
+                                    activity.queryLogCtx().CTXLOG("ERROR: Continuation sequence wrapped"); // shouldn't actually matter.... but suggests a very iffy query!
+                                    resendSequence = 1;
+                                }
+                                else
+                                    resendSequence++;
+                                RoxiePacketHeader *newHeader = (RoxiePacketHeader *) nextQuery.toByteArray();
+                                newHeader->continueSequence = resendSequence; // NOTE - we clear the skipTo flag since continuation of a skip is NOT a skip...
+                                newHeader->retries &= ~ROXIE_RETRIES_MASK;
+                                IRoxieQueryPacket *resend = createRoxiePacket(nextQuery);
+                                CRoxieServerQueryPacket *fqp = new CRoxieServerQueryPacket(resend);
+                                fqp->setSequence(original->getSequence());
+                                pending.add(*fqp, idx+1); // note that pending takes ownership. sendPacket does not release.
+                                original->setContinuation(LINK(fqp));
+                                if (mergeOrder)
+                                    fqp->setDelayed(true);
+                                else
+                                {
+                                    ROQ->sendPacket(resend, activity.queryLogCtx());
+                                    sentsome.signal();
+                                }
                             }
                             else
-                                resendSequence++;
-                            RoxiePacketHeader *newHeader = (RoxiePacketHeader *) nextQuery.toByteArray();
-                            newHeader->continueSequence = resendSequence; // NOTE - we clear the skipTo flag since continuation of a skip is NOT a skip...
-                            newHeader->retries &= ~ROXIE_RETRIES_MASK;
-                            IRoxieQueryPacket *resend = createRoxiePacket(nextQuery);
-                            CRoxieServerQueryPacket *fqp = new CRoxieServerQueryPacket(resend);
-                            fqp->setSequence(original->getSequence());
-                            pending.add(*fqp, idx+1); // note that pending takes ownership. sendPacket does not release.
-                            original->setContinuation(LINK(fqp));
-                            if (mergeOrder)
-                                fqp->setDelayed(true);
-                            else
-                            {
-                                ROQ->sendPacket(resend, activity.queryLogCtx());
-                                sentsome.signal();
-                            }
+                                activity.queryLogCtx().CTXLOG("mck - op is NULL!");
                         }
+
                         unsigned channel = header.channel;
                         {
                             ChannelBuffer *b = queryChannelBuffer(channel); // If not something is wrong, or we sent out on channel 0?
@@ -4902,6 +4937,23 @@ public:
                         }
                         original->setResult(mr.getClear());
                         sentsome.signal();
+
+                        nowT = msTick();
+                        mckGNUTime += (nowT - mckSrtTime);
+
+                        if ( (nowT - mckLastPTime) >= 5000)
+                        {
+                            DBGLOG("mck - getNextUnpacker1: %6u %6u %7.4lf %6u %6u %6u %6u", mckGNUCalls, mckGNUTime, (double)mckGNUTime / (double)mckGNUCalls,
+                                    mckGNUTime1, mckGNUTime2, mckGNUTime3, mckGNUTime4);
+                            mckLastPTime = nowT;
+                            mckGNUCalls = 0;
+                            mckGNUTime  = 0;
+                            mckGNUTime1 = 0;
+                            mckGNUTime2 = 0;
+                            mckGNUTime3 = 0;
+                            mckGNUTime4 = 0;
+                        }
+
                         return;
                     }
                 }
@@ -4917,6 +4969,22 @@ public:
                 }
             }
         }
+
+        nowT = msTick();
+        mckGNUTime += (nowT - mckSrtTime);
+        if ( (nowT - mckLastPTime) >= 5000)
+        {
+            DBGLOG("mck - getNextUnpacker2: %6u %6u %7.4lf %6u %6u %6u %6u", mckGNUCalls, mckGNUTime, (double)mckGNUTime / (double)mckGNUCalls,
+                    mckGNUTime1, mckGNUTime2, mckGNUTime3, mckGNUTime4);
+            mckLastPTime = nowT;
+            mckGNUCalls = 0;
+            mckGNUTime  = 0;
+            mckGNUTime1 = 0;
+            mckGNUTime2 = 0;
+            mckGNUTime3 = 0;
+            mckGNUTime4 = 0;
+        }
+
     }
 
     inline unsigned headerLength() const
