@@ -958,6 +958,8 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
                 udpRequestToSendTimeout = 5000;
         }
 
+        udpRecvFlowTimeout = topology->getPropInt("@udpRecvFlowTimeout", 500);
+
         udpRequestToSendAckTimeout = topology->getPropInt("@udpRequestToSendAckTimeout", 100);
         if (!udpRequestToSendAckTimeout)
         {
