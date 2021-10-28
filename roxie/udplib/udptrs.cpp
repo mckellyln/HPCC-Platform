@@ -671,6 +671,9 @@ class CSendManager : implements ISendManager, public CInterface
         {
             if (udpTraceLevel > 0)
                 DBGLOG("UdpSender: send_resend_flow started");
+#ifdef __linux__
+            setLinuxThreadPriority(2);
+#endif
             unsigned timeout = udpRequestToSendTimeout;
             while (running)
             {

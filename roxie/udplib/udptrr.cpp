@@ -45,6 +45,8 @@
 using roxiemem::DataBuffer;
 using roxiemem::IRowManager;
 
+unsigned udpRecvFlowTimeout = 500;
+
 unsigned udpMaxPendingPermits;
 
 RelaxedAtomic<unsigned> flowPermitsSent = {0};
@@ -427,7 +429,7 @@ class CReceiveManager : implements IReceiveManager, public CInterface
             adjustPriority(1);
         #endif
             UdpRequestToSendMsg msg;
-            unsigned timeout = 5000;
+            unsigned timeout = 1;
             while (running)
             {
                 try
@@ -436,8 +438,8 @@ class CReceiveManager : implements IReceiveManager, public CInterface
                     {
                         DBGLOG("UdpReceiver: wait_read(%u)", timeout);
                     }
-                    bool dataAvail = flow_socket->wait_read(timeout);
-                    if (dataAvail)
+                    int dataAvail = flow_socket->wait_read(timeout);
+                    if (dataAvail > 0)
                     {
                         const unsigned l = sizeof(msg);
                         unsigned int res ;
@@ -469,7 +471,7 @@ class CReceiveManager : implements IReceiveManager, public CInterface
                             DBGLOG("UdpReceiver: received unrecognized flow control message cmd=%i", msg.cmd);
                         }
                     }
-                    timeout = 5000;   // The default timeout is 5 seconds if nothing is waiting for response...
+                    timeout = udpRecvFlowTimeout;   // The default timeout if nothing is waiting for response...
                     if (pendingPermits)
                     {
                         unsigned now = msTick();
