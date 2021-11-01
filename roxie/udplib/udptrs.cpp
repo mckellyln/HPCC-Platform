@@ -34,6 +34,7 @@
 #endif
 #include <math.h>
 #include <atomic>
+#include <sched.h>
 
 unsigned udpOutQsPriority = 0;
 unsigned udpMaxRetryTimedoutReqs = 0; // 0 means off (keep retrying forever)
@@ -218,6 +219,7 @@ private:
             }
             send_flow_socket->write(&msg, sizeof(UdpRequestToSendMsg));
             flowRequestsSent++;
+            sched_yield();
         }
         catch(IException *e)
         {
@@ -440,6 +442,7 @@ public:
                     data_socket->write(buffer->data, length);
                 }
                 dataPacketsSent++;
+                sched_yield();
             }
             catch(IException *e)
             {
