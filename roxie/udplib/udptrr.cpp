@@ -853,7 +853,7 @@ class CReceiveManager : implements IReceiveManager, public CInterface
                 E->Release();
             }
         }
-        if (udpTraceLevel && isDefault)
+        if ( (udpTraceLevel > 1) && isDefault)
         {
             StringBuffer s;
             DBGLOG("UdpReceiver: CPacketCollator NO msg collator found - using default - ruid=" RUIDF " id=0x%.8X mseq=%u pkseq=0x%.8X node=%s", pktHdr->ruid, pktHdr->msgId, pktHdr->msgSeq, pktHdr->pktSeq, pktHdr->node.getTraceText(s).str());
