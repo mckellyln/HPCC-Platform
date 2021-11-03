@@ -145,6 +145,8 @@
                 traceLevel="1"
                 traceLimit="10"
                 trapTooManyActiveQueries="true"
+                useAeron="false"
+                useEnet="false"
                 udpFlowSocketsSize="131071"
                 udpLocalWriteSocketSize="131071"
                 udpMaxRetryTimedoutReqs="0"

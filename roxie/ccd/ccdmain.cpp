@@ -121,6 +121,7 @@ bool lazyOpen;
 bool localAgent;
 bool encryptInTransit;
 bool useAeron;
+bool useEnet;
 bool ignoreOrphans;
 bool doIbytiDelay = true; 
 bool copyResources;
@@ -913,6 +914,15 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
         }
 #endif
         useAeron = topology->getPropBool("@useAeron", false);
+        useEnet = topology->getPropBool("@useEnet", false);
+        if (useAeron && useEnet)
+        {
+            DBGLOG("Invalid configuration, both Aeron and Enet cannot be selected, disabling Aeron");
+            useAeron = false;
+        }
+        if (useEnet)
+            udpEnetInit(1);
+
         doIbytiDelay = topology->getPropBool("@doIbytiDelay", true);
         minIbytiDelay = topology->getPropInt("@minIbytiDelay", 2);
         initIbytiDelay = topology->getPropInt("@initIbytiDelay", 50);
@@ -997,7 +1007,7 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
         udpFlowSocketsSize = topology->getPropInt("@udpFlowSocketsSize", 131072);
         udpLocalWriteSocketSize = topology->getPropInt("@udpLocalWriteSocketSize", 1024000);
 #ifndef _CONTAINERIZED
-        roxieMulticastEnabled = topology->getPropBool("@roxieMulticastEnabled", true) && !useAeron;   // enable use of multicast for sending requests to agents
+        roxieMulticastEnabled = topology->getPropBool("@roxieMulticastEnabled", true) && !useAeron && !useEnet;   // enable use of multicast for sending requests to agents
 #endif
 
         udpResendLostPackets = topology->getPropBool("@udpResendLostPackets", true);
@@ -1202,6 +1212,8 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
 #endif
         if (useAeron)
             setAeronProperties(topology);
+        else if (useEnet)
+            setEnetProperties(topology);
 
 #ifdef _CONTAINERIZED
         allQuerySetNames.append(roxieName);
@@ -1501,6 +1513,8 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
     perfMonHook.clear();
 #endif
     stopAeronDriver();
+    if (useEnet)
+        udpEnetInit(0);
 
     strdup("Make sure leak checking is working");
     roxiemem::releaseRoxieHeap();

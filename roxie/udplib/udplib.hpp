@@ -157,6 +157,11 @@ extern UDPLIB_API void setAeronProperties(const IPropertyTree *config);
 extern UDPLIB_API IReceiveManager *createAeronReceiveManager(const SocketEndpoint &ep, bool encrypted);
 extern UDPLIB_API ISendManager *createAeronSendManager(unsigned dataPort, unsigned numQueues, const IpAddress &myIP, bool encrypted);
 
+extern UDPLIB_API void setEnetProperties(const IPropertyTree *config);
+extern UDPLIB_API IReceiveManager *createEnetReceiveManager(const SocketEndpoint &ep, bool encrypted);
+extern UDPLIB_API ISendManager *createEnetSendManager(unsigned dataPort, unsigned numQueues, const IpAddress &myIP, bool encrypted);
+extern UDPLIB_API void udpEnetInit(int state);
+
 extern UDPLIB_API RelaxedAtomic<unsigned> unwantedDiscarded;
 
 extern UDPLIB_API bool udpTraceFlow;

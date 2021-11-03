@@ -14,7 +14,7 @@
 #    limitations under the License.
 ################################################################################
 
-# Component: udplib 
+# Component: udplib
 
 #####################################################
 # Description:
@@ -23,46 +23,54 @@
 #####################################################
 
 
-project( udplib ) 
+project( udplib )
 
-set (    SRCS 
-         udpmsgpk.cpp 
-         udpaeron.cpp 
-         udpsha.cpp 
-         udptrr.cpp 
-         udptrs.cpp
-	 udptopo.cpp
-	 udpipmap.cpp
+set (   SRCS
+        udpmsgpk.cpp
+        udpaeron.cpp
+        udpenet.cpp
+        udpsha.cpp
+        udptrr.cpp
+        udptrs.cpp
+        udptopo.cpp
+        udpipmap.cpp
     )
 
-include_directories ( 
-         ./../../roxie/roxiemem 
-         ./../../system/include 
-         ./../../system/jlib 
+include_directories (
+         ./../../roxie/roxiemem
+         ./../../system/include
+         ./../../system/jlib
          ./../../roxie/ccd
          ${HPCC_SOURCE_DIR}/testing/unittests
          ./../../roxie/roxie
-         ./../../system/aeron/aeron-client/src/main/cpp 
+         ./../../system/aeron/aeron-client/src/main/cpp
          ./../../system/aeron/aeron-driver/src/main/c/
+         ./../../system/enet/include
     )
 
 HPCC_ADD_LIBRARY( udplib SHARED ${SRCS} )
-set_target_properties( udplib PROPERTIES 
+set_target_properties( udplib PROPERTIES
     COMPILE_FLAGS -D_USRDLL
     DEFINE_SYMBOL UDPLIB_EXPORTS )
 install ( TARGETS udplib RUNTIME DESTINATION ${EXEC_DIR} LIBRARY DESTINATION ${LIB_DIR} )
 
-target_link_libraries ( udplib 
+target_link_libraries ( udplib
          jlib
-         roxiemem 
+         roxiemem
     )
-    
+
 if (USE_AERON)
-  target_link_libraries ( udplib 
+  target_link_libraries ( udplib
          aeron_client
          aeron_driver
     )
 
   install( TARGETS aeron_driver RUNTIME DESTINATION ${EXEC_DIR} LIBRARY DESTINATION ${LIB_DIR} )
-endif()    
+endif()
+
+if (USE_ENET)
+    target_link_libraries ( udplib
+        enet
+    )
+endif()
 
