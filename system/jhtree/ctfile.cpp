@@ -495,10 +495,20 @@ CJHTreeNode::CJHTreeNode()
     expandedSize = 0;
 }
 
+unsigned tLoadThreshold = 500;
+
 void CJHTreeNode::load(CKeyHdr *_keyHdr, const void *rawData, offset_t _fpos, bool needCopy)
 {
+    unsigned tStart = msTick();
+
     CNodeBase::load(_keyHdr, _fpos);
     unpack(rawData, needCopy);
+
+    unsigned tLoad = msTick() - tStart;
+    if (tLoad > tLoadThreshold)
+    {
+        DBGLOG("mck - unpack time: %u", tLoad);
+    }
 }
 
 CJHTreeNode::~CJHTreeNode()

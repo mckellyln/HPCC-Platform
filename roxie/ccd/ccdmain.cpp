@@ -920,6 +920,11 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
         blindLogging = topology->getPropBool("@blindLogging", false);
         preloadOnceData = topology->getPropBool("@preloadOnceData", true);
         reloadRetriesFailed  = topology->getPropBool("@reloadRetriesSuspended", true);
+
+        tInsertThreshold = topology->getPropInt("@tInsertThreshold", 200);
+        tLoadThreshold = topology->getPropInt("@tLoadThreshold", 500);
+        tReadThreshold = topology->getPropInt("@tReadThreshold", 400);
+
 #if defined(__linux__) && defined(SYS_ioprio_set)
         const char *backgroundCopyClassString = topology->queryProp("@backgroundCopyClass");
         if (!isEmptyString(backgroundCopyClassString))
@@ -1391,7 +1396,8 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
                         }
                         const char *soname =  roxieFarm.queryProp("@so");
                         const char *config  = roxieFarm.queryProp("@config");
-                        Owned<IHpccProtocolPlugin> protocolPlugin = ensureProtocolPlugin(*protocolCtx, soname);
+                        // mck BUG Owned<IHpccProtocolPlugin> protocolPlugin = ensureProtocolPlugin(*protocolCtx, soname);
+                        IHpccProtocolPlugin *protocolPlugin = ensureProtocolPlugin(*protocolCtx, soname);
                         roxieServer.setown(protocolPlugin->createListener(protocol ? protocol : "native", createRoxieProtocolMsgSink(ip, port, numThreads, suspended), port, listenQueue, config, certFileName.str(), keyFileName.str(), passPhraseStr.str()));
                     }
                     else

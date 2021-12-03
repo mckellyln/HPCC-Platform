@@ -1103,6 +1103,8 @@ CDiskKeyIndex::CDiskKeyIndex(unsigned _iD, IFileIO *_io, const char *_name, bool
     init(hdr, isTLK);
 }
 
+unsigned tReadThreshold = 400;
+
 CJHTreeNode *CDiskKeyIndex::loadNode(CJHTreeNode * optNode, offset_t pos)
 {
     nodesLoaded++;
@@ -1110,6 +1112,9 @@ CJHTreeNode *CDiskKeyIndex::loadNode(CJHTreeNode * optNode, offset_t pos)
     MemoryAttr ma;
     char *nodeData = (char *) ma.allocate(nodeSize);
     MTIME_SECTION(queryActiveTimer(), "JHTREE read node");
+
+    unsigned tStart = msTick();
+
     if (io->read(pos, nodeSize, nodeData) != nodeSize)
     {
         IException *E = MakeStringException(errno, "Error %d reading node at position %" I64F "x", errno, pos); 
@@ -1118,6 +1123,13 @@ CJHTreeNode *CDiskKeyIndex::loadNode(CJHTreeNode * optNode, offset_t pos)
         EXCLOG(E, m.str());
         throw E;
     }
+
+    unsigned tRead = msTick() - tStart;
+    if (tRead > tReadThreshold)
+    {
+        DBGLOG("mck - read time: %u", tRead);
+    }
+
     if (optNode)
         return CKeyIndex::loadNode(optNode, nodeData, pos, true);
     return CKeyIndex::loadNode(nodeData, pos, true);

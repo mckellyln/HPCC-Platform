@@ -43,6 +43,8 @@ using roxiemem::IRowManager;
 
 RelaxedAtomic<unsigned> unwantedDiscarded;
 
+unsigned tInsertThreshold = 200;
+
 // PackageSequencer ====================================================================================
 //
 typedef DataBuffer * data_buffer_ptr;
@@ -127,7 +129,7 @@ public:
         return ret;
     }
 
-    bool insert(DataBuffer *dataBuff, std::atomic<unsigned> &duplicates, std::atomic<unsigned> &resends)  // returns true if message is complete.
+    bool insertx(DataBuffer *dataBuff, std::atomic<unsigned> &duplicates, std::atomic<unsigned> &resends)  // returns true if message is complete.
     {
         bool res = false;
         assert(dataBuff->msgNext == NULL);
@@ -300,6 +302,18 @@ public:
             }
         }
         return res;
+    }
+
+    bool insert(DataBuffer *dataBuff, std::atomic<unsigned> &duplicates, std::atomic<unsigned> &resends)  // returns true if message is complete.
+    {
+        unsigned tStart = msTick();
+        bool rtn = insertx(dataBuff, duplicates, resends);
+        unsigned tInsert = msTick() - tStart;
+        if (tInsert > tInsertThreshold)
+        {
+            DBGLOG("mck - insert time: %u ms", tInsert);
+        }
+        return rtn;
     }
 
     inline const void *getMetaData(unsigned &length)

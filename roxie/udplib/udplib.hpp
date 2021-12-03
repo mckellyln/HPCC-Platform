@@ -194,6 +194,8 @@ extern UDPLIB_API RelaxedAtomic<unsigned> flowRequestsSent;
 extern UDPLIB_API RelaxedAtomic<unsigned> flowPermitsReceived;
 extern UDPLIB_API RelaxedAtomic<unsigned> dataPacketsSent;
 
+extern UDPLIB_API unsigned tInsertThreshold;
+
 interface IRoxieQueryPacket;
 class RoxiePacketHeader;
 interface IPendingCallback;
