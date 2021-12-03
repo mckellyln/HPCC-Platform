@@ -495,10 +495,41 @@ CJHTreeNode::CJHTreeNode()
     expandedSize = 0;
 }
 
+static unsigned oStart = msTick();
+static unsigned tCalled = 0;
+static unsigned tLoadMin = 999999999;
+static unsigned tLoadMax = 0;
+static unsigned tLoad = 0;
+
 void CJHTreeNode::load(CKeyHdr *_keyHdr, const void *rawData, offset_t _fpos, bool needCopy)
 {
+    tCalled++;
+    unsigned tStart = msTick();
+
     CNodeBase::load(_keyHdr, _fpos);
     unpack(rawData, needCopy);
+
+    unsigned tNow = msTick();
+    unsigned tExpand = tNow - tStart;
+
+    if (tExpand < tLoadMin)
+        tLoadMin = tExpand;
+
+    if (tExpand > tLoadMax)
+        tLoadMax = tExpand;
+
+    tLoad += tExpand;
+
+    if ( ((tNow - oStart) > 5000) && (tCalled > 0) )
+    {
+        DBGLOG("mck - tCalled: %u tLoadMin: %u tLoadMax: %u tLoad: %u", tCalled, tLoadMin, tLoadMax, tLoad);
+        oStart = tNow;
+        tCalled = 0;
+        tLoadMin = 999999999;
+        tLoadMax = 0;
+        tLoad = 0;
+    }
+
 }
 
 CJHTreeNode::~CJHTreeNode()

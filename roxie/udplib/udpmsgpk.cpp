@@ -612,8 +612,17 @@ bool CMessageCollator::attach_data(const void *data, unsigned len)
     return true;
 }
 
+static unsigned oStart = msTick();
+static unsigned tCalled = 0;
+static unsigned tInsertMin = 999999999;
+static unsigned tInsertMax = 0;
+static unsigned tInsert = 0;
+
 void CMessageCollator::collate(DataBuffer *dataBuff)
 {
+    tCalled++;
+    unsigned tStart = msTick();
+
     PUID puid = GETPUID(dataBuff);
     // MORE - we leak (at least until query terminates) a PackageSequencer for messages that we only receive parts of - maybe only an issue for "catchall" case
     PackageSequencer *pkSqncr = mapping.getValue(puid);
@@ -633,6 +642,28 @@ void CMessageCollator::collate(DataBuffer *dataBuff)
         queueCrit.leave();
         sem.signal();
     }
+
+    unsigned tNow = msTick();
+    unsigned tInstime = tNow - tStart;
+
+    if (tInstime < tInsertMin)
+        tInsertMin = tInstime;
+
+    if (tInstime > tInsertMax)
+        tInsertMax = tInstime;
+
+    tInsert += tInstime;
+
+    if ( ((tNow - oStart) > 5000) && (tCalled > 0) )
+    {
+        DBGLOG("mck - insert: tCalled: %u tInsertMin: %u tInsertMax: %u tInsert: %u", tCalled, tInsertMin, tInsertMax, tInsert);
+        oStart = tNow;
+        tCalled = 0;
+        tInsertMin = 999999999;
+        tInsertMax = 0;
+        tInsert = 0;
+    }
+
 }
 
 IMessageResult *CMessageCollator::getNextResult(unsigned time_out, bool &anyActivity)

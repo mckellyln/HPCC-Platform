@@ -836,7 +836,8 @@ class CReceiveManager : implements IReceiveManager, public CInterface
             try
             {
                 DataBuffer *dataBuff = input_queue->pop(true);
-                collatePacket(dataBuff);
+                if (dataBuff)
+                    collatePacket(dataBuff);
             }
             catch (IException * e)
             {
