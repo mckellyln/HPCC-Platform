@@ -1647,6 +1647,15 @@ unsigned usTick()
     gettimeofday(&tm,NULL);
     return tm.tv_sec*1000000+tm.tv_usec;
 }
+
+unsigned usCPUTick()
+{
+    timespec tp;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tp)>=0)
+            return tp.tv_sec*1000000+(tp.tv_nsec/1000);
+    return 0;
+}
+
 #elif __APPLE__
 
 unsigned usTick()

@@ -228,11 +228,11 @@ protected:
     size32_t keyRecLen;
     char *keyBuf;
 
-    void unpack(const void *node, bool needCopy);
+    unsigned unpack(const void *node, bool needCopy);
     unsigned __int64 firstSequence;
     size32_t expandedSize;
 
-    static char *expandKeys(void *src,size32_t &retsize);
+    static char *expandKeys(void *src,size32_t &retsize,unsigned &allocTime);
     static void releaseMem(void *togo, size32_t size);
     static void *allocMem(size32_t size);
 

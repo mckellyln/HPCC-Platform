@@ -21,6 +21,8 @@
 #include <stdlib.h>
 #ifdef __linux__
 #include <alloca.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 #endif
 
 #include "jmisc.hpp"
@@ -497,17 +499,72 @@ CJHTreeNode::CJHTreeNode()
 
 unsigned tLoadThreshold = 500;
 
+static unsigned tLoadTotal = 0;
+static unsigned tCPULoadTotal = 0;
+static unsigned tnvcswTotal = 0;
+static unsigned tnivcswTotal = 0;
+static unsigned tnminfltTotal = 0;
+static unsigned tnmajfltTotal = 0;
+static unsigned tLoadCalled = 0;
+
 void CJHTreeNode::load(CKeyHdr *_keyHdr, const void *rawData, offset_t _fpos, bool needCopy)
 {
     unsigned tStart = msTick();
+    unsigned tCPUStart = usCPUTick();
+
+    struct rusage usage;
+    getrusage(RUSAGE_THREAD, &usage);
+    unsigned nvcswStart = usage.ru_nvcsw;
+    unsigned nivcswStart = usage.ru_nivcsw;
+    unsigned nminfltStart = usage.ru_minflt;
+    unsigned nmajfltStart = usage.ru_majflt;
+
+    // -------------------
 
     CNodeBase::load(_keyHdr, _fpos);
-    unpack(rawData, needCopy);
+    unsigned upckTime = unpack(rawData, needCopy);
+
+    // -------------------
+
+    getrusage(RUSAGE_THREAD, &usage);
+    unsigned nvcsw = usage.ru_nvcsw - nvcswStart;
+    unsigned nivcsw = usage.ru_nivcsw - nivcswStart;
+    unsigned nminflt = usage.ru_minflt - nminfltStart;
+    unsigned nmajflt = usage.ru_majflt - nmajfltStart;
 
     unsigned tLoad = msTick() - tStart;
+    unsigned tCPULoad = usCPUTick() - tCPUStart;
     if (tLoad > tLoadThreshold)
     {
-        DBGLOG("mck - unpack time: %u", tLoad);
+        DBGLOG("mck - unpack time: %u (%u) ms, cpu: %u us, nvcsw: %u, nicsw: %u, minflt: %u, majflt: %u",
+                tLoad, upckTime, tCPULoad, nvcsw, nivcsw, nminflt, nmajflt);
+    }
+
+    tLoadTotal += tLoad;
+    tCPULoadTotal += tCPULoad;
+    tnvcswTotal += nvcsw;
+    tnivcswTotal += nivcsw;
+    tnminfltTotal += nminflt;
+    tnmajfltTotal += nmajflt;
+    tLoadCalled++;
+
+    if (tLoadCalled >= 100)
+    {
+        unsigned tLoadAvg = tLoadTotal / tLoadCalled;
+        unsigned tCPULoadAvg = tCPULoadTotal / tLoadCalled;
+        unsigned tnvcswAvg = tnvcswTotal / tLoadCalled;
+        unsigned tnivcswAvg = tnivcswTotal / tLoadCalled;
+        unsigned tnminfltAvg = tnminfltTotal / tLoadCalled;
+        unsigned tnmajfltAvg = tnmajfltTotal / tLoadCalled;
+        DBGLOG("mck - unpack called: %u, avg: %u ms, avg cpu: %u us, avg nvcsw: %u, avg nivcsw: %u, avg minflt: %u, avg majflt: %u",
+                tLoadCalled, tLoadAvg, tCPULoadAvg, tnvcswAvg, tnivcswAvg, tnminfltAvg, tnmajfltAvg);
+        tLoadTotal = 0;
+        tCPULoadTotal = 0;
+        tnvcswTotal = 0;
+        tnivcswTotal = 0;
+        tnminfltTotal = 0;
+        tnmajfltTotal = 0;
+        tLoadCalled = 0;
     }
 }
 
@@ -526,20 +583,25 @@ void *CJHTreeNode::allocMem(size32_t len)
     char *ret = (char *) malloc(len);
     if (!ret)
     {
+        DBGLOG("mck - allocMem %u bytes fails", len);
         Owned<IException> E = MakeStringException(MSGAUD_operator,0, "Out of memory in CJHTreeNode::allocMem, requesting %d bytes", len);
         EXCLOG(E);
         if (flushJHtreeCacheOnOOM)
         {
+            DBGLOG("mck - calling clearKeyStoreCache(false)");
             clearKeyStoreCache(false);
             ret = (char *) malloc(len);
         }
         if (!ret)
+        {
+            DBGLOG("mck - allocMem failed again");
             throw E.getClear();
+        }
     }
     return ret;
 }
 
-char *CJHTreeNode::expandKeys(void *src,size32_t &retsize)
+char *CJHTreeNode::expandKeys(void *src,size32_t &retsize, unsigned &allocTime)
 {
     Owned<IExpander> exp = createLZWExpander(true);
     int len=exp->init(src);
@@ -548,7 +610,9 @@ char *CJHTreeNode::expandKeys(void *src,size32_t &retsize)
         retsize = 0;
         return NULL;
     }
+    unsigned tStart = msTick();
     char *outkeys=(char *) allocMem(len);
+    allocTime = msTick() - tStart;
     exp->expand(outkeys);
     retsize = len;
     return outkeys;
@@ -559,8 +623,9 @@ size32_t CJHTreeNode::getNodeSize() const
     return keyHdr->getNodeSize();
 }
 
-void CJHTreeNode::unpack(const void *node, bool needCopy)
+unsigned CJHTreeNode::unpack(const void *node, bool needCopy)
 {
+    unsigned allocTime = 0;
     assertex(!keyBuf && (expandedSize == 0));
     memcpy(&hdr, node, sizeof(hdr));
     SwapBigEndian(hdr);
@@ -608,7 +673,7 @@ void CJHTreeNode::unpack(const void *node, bool needCopy)
             bool quick = !isBlob() && (keyType&(HTREE_QUICK_COMPRESSED_KEY|HTREE_VARSIZE))==HTREE_QUICK_COMPRESSED_KEY;
             keyBuf = NULL;
             if (!quick)
-                keyBuf = expandKeys(keys,expandedSize);
+                keyBuf = expandKeys(keys,expandedSize,allocTime);
         }
     }
     else
@@ -719,6 +784,8 @@ void CJHTreeNode::unpack(const void *node, bool needCopy)
             memcpy(keyBuf, keys, hdr.keyBytes + sizeof( __int64 ));
         }
     }
+
+    return allocTime;
 }
 
 offset_t CJHTreeNode::prevNodeFpos() const

@@ -465,6 +465,9 @@ void CLZWExpander::expand(void *buf)
 {
     if (!outlen)
         return;
+
+    unsigned tStart = msTick();
+
     if (buf) {
         if (bufalloc)
             free(outbuf);
@@ -479,6 +482,13 @@ void CLZWExpander::expand(void *buf)
         if (!outbuf)
             throw MakeStringException(MSGAUD_operator,0, "Out of memory in LZWExpander::expand, requesting %d bytes", bufalloc);
     }
+
+    unsigned tTime = msTick() - tStart;
+    if (tTime > 200)
+    {
+        DBGLOG("mck - expand free/malloc time: %u", tTime);
+    }
+
     unsigned char *out=outbuf;
     unsigned char *outend = out+outlen;
     int oldcode ;
