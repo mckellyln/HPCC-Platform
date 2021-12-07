@@ -40,6 +40,7 @@ interface jlib_decl ICompressor : public IInterface
 interface jlib_decl IExpander : public IInterface
 {
     virtual size32_t init(const void *blk)=0; // returns size required
+    virtual void   fini()=0;
     virtual void   expand(void *target)=0;
     virtual void * bufptr()=0;
     virtual size32_t buflen()=0;

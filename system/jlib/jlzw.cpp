@@ -450,6 +450,15 @@ CLZWExpander::~CLZWExpander()
         free(outbuf);
 }
 
+void CLZWExpander::fini()
+{
+    if (bufalloc)
+    {
+        free(outbuf);
+        bufalloc = 0;
+    }
+}
+
 size32_t CLZWExpander::init(const void *blk)
 {
     dict.initdict();
@@ -1476,6 +1485,8 @@ public:
         return outlen;
     }
 
+    void fini() { }
+
     void expand(void *buf)
     {
         if (!outlen)
@@ -1763,7 +1774,7 @@ public:
         return true; 
     }
 
-
+    void fini() { }
 
     bool expandRow(void *target,unsigned idx) const
     {
@@ -2645,6 +2656,8 @@ public:
         aesDecrypt(key.get(),key.length(),p+sizeof(size32_t),l,compbuf);
         return exp->init(compbuf.bufferBase());         
     }
+
+    void fini() { }
 
     void   expand(void *target)
     {

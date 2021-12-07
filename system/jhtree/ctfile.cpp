@@ -610,11 +610,19 @@ char *CJHTreeNode::expandKeys(void *src,size32_t &retsize, unsigned &allocTime)
         retsize = 0;
         return NULL;
     }
+
     unsigned tStart = msTick();
     char *outkeys=(char *) allocMem(len);
-    allocTime = msTick() - tStart;
+    unsigned tEnd = msTick();
+    allocTime = (tEnd - tStart);
+
     exp->expand(outkeys);
     retsize = len;
+
+    tStart = msTick();
+    exp->fini();
+    allocTime += (msTick() - tStart);
+
     return outkeys;
 }
 

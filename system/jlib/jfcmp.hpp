@@ -234,6 +234,8 @@ public:
         return outlen;
     }
 
+    virtual void fini() { }
+
     virtual void expand(void *buf)
     {
         if (!outlen)
