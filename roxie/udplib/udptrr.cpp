@@ -798,7 +798,7 @@ class CReceiveManager : implements IReceiveManager, public CInterface
         : collatorThread(*this), encrypted(_encrypted), sendersTable([client_flow_port](const ServerIdentifier ip) { return new UdpSenderEntry(ip.getIpAddress(), client_flow_port);})
     {
 #ifndef _WIN32
-        setpriority(PRIO_PROCESS, 0, -15);
+        // setpriority(PRIO_PROCESS, 0, -15);
 #endif
         receive_flow_port = server_flow_port;
         data_port = d_port;

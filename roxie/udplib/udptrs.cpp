@@ -964,7 +964,7 @@ public:
     {
         myId = myIP.getIpText(myIdStr).str();
 #ifndef _WIN32
-        setpriority(PRIO_PROCESS, 0, -3);
+        // setpriority(PRIO_PROCESS, 0, -3);
 #endif
         numQueues = _numQueues;
         data = new send_data(*this, bucket);

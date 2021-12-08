@@ -293,6 +293,9 @@ int check_max_socket_write_buffer(int size) {
 #if defined( __linux__) || defined(__APPLE__)
 void setLinuxThreadPriority(int level)
 {
+    // mck
+    return;
+
     pthread_t self = pthread_self();
     int policy;
     sched_param param;
