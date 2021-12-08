@@ -23,6 +23,7 @@
 #include <alloca.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/syscall.h>
 #endif
 
 #include "jmisc.hpp"
@@ -601,6 +602,14 @@ void *CJHTreeNode::allocMem(size32_t len)
     return ret;
 }
 
+static CriticalSection unpackCS;
+static int sdump = 0;
+
+pid_t gettid(void)
+{
+    return syscall( __NR_gettid );
+}
+
 char *CJHTreeNode::expandKeys(void *src,size32_t &retsize, unsigned &allocTime)
 {
     Owned<IExpander> exp = createLZWExpander(true);
@@ -615,6 +624,22 @@ char *CJHTreeNode::expandKeys(void *src,size32_t &retsize, unsigned &allocTime)
     char *outkeys=(char *) allocMem(len);
     unsigned tEnd = msTick();
     allocTime = (tEnd - tStart);
+
+    if (allocTime > 100)
+    {
+        CriticalBlock b(unpackCS);
+        sdump++;
+        if (sdump == 1)
+        {
+            char syscmd[256] = { "" };
+            sprintf(syscmd, "sudo -n eu-stack -s -p %d >> /tmp/rstack.%d", getpid(), gettid());
+            system(syscmd);
+            sprintf(syscmd, "pidstat -t -u >> /tmp/rpids.%d", gettid());
+            system(syscmd);
+        }
+        else if (sdump >= 10)
+            sdump = 0;
+    }
 
     exp->expand(outkeys);
     retsize = len;
