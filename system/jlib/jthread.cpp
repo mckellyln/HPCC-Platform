@@ -439,6 +439,8 @@ void Thread::startRelease()
         throw makeOsException(status);
     }
     unsigned retryCount = 10;
+
+    unsigned thrdStart = msTick();
     for (;;)
     {
         if (starting.wait(1000*10))
@@ -457,6 +459,13 @@ void Thread::startRelease()
         ThreadList.zap(*this);  // just in case restarting
         ThreadList.append(*this);
     }
+    unsigned thrdTime = msTick() - thrdStart;
+
+    if (thrdTime > 500)
+    {
+        DBGLOG("mck - startRelease time: %u", thrdTime);
+    }
+
 #ifdef _WIN32
     DWORD count = ResumeThread(hThread);
     assertex(count == 1);
