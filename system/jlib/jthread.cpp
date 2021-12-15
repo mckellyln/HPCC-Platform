@@ -378,8 +378,15 @@ void Thread::start()
     startRelease();
 }
 
+static unsigned tCalled = 0;
+static unsigned tMin = 999999999;
+static unsigned tMax = 0;
+static unsigned tTotal = 0;
+
 void Thread::startRelease()
 {
+    unsigned tStart = msTick();
+
     assertex(!alive);
     stopped.reinit(0); // just in case restarting
 #ifdef _WIN32
@@ -438,12 +445,11 @@ void Thread::startRelease()
         IERRLOG("Running threads:\n %s",s.str());
         throw makeOsException(status);
     }
-    unsigned retryCount = 10;
+    unsigned retryCount = 1000;
 
-    unsigned thrdStart = msTick();
     for (;;)
     {
-        if (starting.wait(1000*10))
+        if (starting.wait(100))
             break;
         else if (0 == --retryCount)
             throw MakeStringException(-1, "Thread::start(%s) failed", getName());
@@ -459,11 +465,25 @@ void Thread::startRelease()
         ThreadList.zap(*this);  // just in case restarting
         ThreadList.append(*this);
     }
-    unsigned thrdTime = msTick() - thrdStart;
 
-    if (thrdTime > 500)
+    unsigned tTime = msTick() - tStart;
+
+    tCalled++;
+    tTotal += tTime;
+    if (tTime > tMax)
+        tMax = tTime;
+    if (tTime < tMin)
+        tMin = tTime;
+
+    if (tCalled >= 100)
     {
-        DBGLOG("mck - startRelease time: %u", thrdTime);
+        unsigned tAvg = tTotal / tCalled;
+        DBGLOG("mck - startRelease called: %u, avg: %u ms, min: %u, max: %u",
+                tCalled, tAvg, tMin, tMax);
+        tCalled = 0;
+        tMin = 999999999;
+        tMax = 0;
+        tTotal = 0;
     }
 
 #ifdef _WIN32

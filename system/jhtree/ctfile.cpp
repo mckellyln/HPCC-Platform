@@ -514,11 +514,26 @@ void CJHTreeNode::load(CKeyHdr *_keyHdr, const void *rawData, offset_t _fpos, bo
     unsigned tCPUStart = usCPUTick();
 
     struct rusage usage;
-    getrusage(RUSAGE_THREAD, &usage);
+    getrusage(RUSAGE_SELF, &usage);
     unsigned nvcswStart = usage.ru_nvcsw;
     unsigned nivcswStart = usage.ru_nivcsw;
     unsigned nminfltStart = usage.ru_minflt;
     unsigned nmajfltStart = usage.ru_majflt;
+
+#if 0
+    unsigned pgfaultStart = 0;
+    unsigned pgfaultEnd = 0;
+
+    FILE *pfd = popen("grep pgfault /proc/vmstat | awk '{print $2}'", "r");
+    if (pfd != NULL)
+    {
+        char line[2000] = { "" };
+        fgets(line, 1023, pfd);
+        sscanf(line, "%u", &pgfaultStart);
+        pclose(pfd);
+        pfd = NULL;
+    }
+#endif
 
     // -------------------
 
@@ -527,11 +542,23 @@ void CJHTreeNode::load(CKeyHdr *_keyHdr, const void *rawData, offset_t _fpos, bo
 
     // -------------------
 
-    getrusage(RUSAGE_THREAD, &usage);
+    getrusage(RUSAGE_SELF, &usage);
     unsigned nvcsw = usage.ru_nvcsw - nvcswStart;
     unsigned nivcsw = usage.ru_nivcsw - nivcswStart;
     unsigned nminflt = usage.ru_minflt - nminfltStart;
     unsigned nmajflt = usage.ru_majflt - nmajfltStart;
+
+#if 0
+    pfd = popen("grep pgfault /proc/vmstat | awk '{print $2}'", "r");
+    if (pfd != NULL)
+    {
+        char line[2000] = { "" };
+        fgets(line, 1023, pfd);
+        sscanf(line, "%u", &pgfaultEnd);
+        pclose(pfd);
+        pfd = NULL;
+    }
+#endif
 
     unsigned tLoad = msTick() - tStart;
     unsigned tCPULoad = usCPUTick() - tCPUStart;

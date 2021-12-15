@@ -42,8 +42,8 @@
 #define CCD_API DECL_IMPORT
 #endif
 
-#define PARALLEL_EXECUTE
-#define PARALLEL_PERSISTANT_THREADS
+// #define PARALLEL_EXECUTE
+// #define PARALLEL_PERSISTANT_THREADS
 
 #define MAXTRACELEVEL 100     // don't want traceLevel+1 to wrap to 0 in lsb
 #define MAX_CLUSTER_SIZE 1024
