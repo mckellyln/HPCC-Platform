@@ -53,6 +53,8 @@
 #include "rtlcommon.hpp"
 #include "../activities/keyedjoin/thkeyedjoincommon.hpp"
 
+static std::atomic<bool> thorShutdown {false};
+
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
@@ -1496,7 +1498,8 @@ public:
             }
             catch (IMP_Exception *e)
             {
-                EXCLOG(e, nullptr);
+                if (!thorShutdown)
+                    EXCLOG(e, nullptr);
                 e->Release();
                 break;
             }
@@ -2072,6 +2075,7 @@ public:
                     {
                         stopped = true;
                         PROGLOG("Shutdown received");
+                        thorShutdown = true;
                         if (watchdog)
                             watchdog->stop();
                         mptag_t sdreplyTag;
