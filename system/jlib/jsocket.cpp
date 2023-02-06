@@ -368,6 +368,85 @@ enum SOCKETMODE { sm_tcp_server, sm_tcp, sm_udp_server, sm_udp, sm_multicast_ser
 # endif
 #endif
 
+// =============================
+
+static CriticalSection queryKACS;
+
+enum UseKA { UNINIT, DISABLED, ENABLED };
+static UseKA doKeepAlive = UNINIT;
+static int keepAliveTime = 7200;
+static int keepAliveIntvl = 75;
+static int keepAliveProbes = 9;
+
+/*
+<Software>
+  <Globals>
+    <expert>
+      <keepalive time="200" interval="75" probes="9"/>
+    </expert>
+  </Globals>
+
+global:
+  expert:
+    keepalive:
+      time: 200
+      interval: 75
+      probes: 9
+
+  getGlobalConfigSP()->getPropInt("expert/keepalive/@time");
+*/
+
+static bool queryKeepAlive(int &time, int &intvl, int &probes)
+{
+    CriticalBlock block(queryKACS);
+
+    if (doKeepAlive == UNINIT)
+    {
+        doKeepAlive = DISABLED;
+
+#ifdef _CONTAINERIZED
+        Owned<IPropertyTree> expert = getGlobalConfigSP()->getPropTree("expert");
+#else
+        IPropertyTree *expert = nullptr;
+        Owned<IPropertyTree> envtree = getHPCCEnvironment();
+        if (envtree)
+            expert = envtree->queryPropTree("Software/Globals/expert");
+#endif
+        if (expert)
+        {
+            DBGLOG("mck - expert is real");
+            bool hasKeepAlive = expert->hasProp("keepalive");
+            if (hasKeepAlive)
+            {
+                DBGLOG("mck - keepalive is real");
+                doKeepAlive = ENABLED;
+                keepAliveTime = expert->getPropInt("keepalive/@time", keepAliveTime);
+                keepAliveIntvl = expert->getPropInt("keepalive/@intvl", keepAliveIntvl);
+                keepAliveProbes = expert->getPropInt("keepalive/@probes", keepAliveProbes);
+            }
+            else
+            {
+                DBGLOG("mck - keepalive is not there");
+            }
+        }
+        else
+        {
+            DBGLOG("mck - expert is not there");
+        }
+    }
+
+    time = keepAliveTime;
+    intvl = keepAliveIntvl;
+    probes = keepAliveProbes;
+
+    if (doKeepAlive == ENABLED)
+        return true;
+    else
+        return false;
+}
+
+// =============================
+
 class CSocket: public ISocket, public CInterface
 {
 public:
@@ -505,6 +584,10 @@ private:
         else
             return 0;
     }
+
+    void checkCfgKeepAlive();
+    void setKeepAlive(bool set, int time, int intval, int probes);
+
 };
 
 CriticalSection CSocket::crit;
@@ -884,6 +967,9 @@ int CSocket::pre_connect (bool block)
         int err = SOCKETERRNO();
         THROWJSOCKEXCEPTION(err);
     }
+
+    checkCfgKeepAlive();
+
     STATS.activesockets++;
     int err = 0;
     set_nonblock(!block);
@@ -946,6 +1032,9 @@ void CSocket::open(int listen_queue_size,bool reuseports)
     if (sock == INVALID_SOCKET) {
         THROWJSOCKEXCEPTION(SOCKETERRNO());
     }
+
+    checkCfgKeepAlive();
+
     STATS.activesockets++;
 
 #ifdef SOCKTRACE
@@ -1098,12 +1187,69 @@ void CSocket::set_linger(int lingertime)
     }
 }
 
-void CSocket::set_keep_alive(bool set)
+void CSocket::setKeepAlive(bool set, int time, int intvl, int probes)
 {
     int on=set?1:0;
-    if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&on, sizeof(on)) != 0) {
+    if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&on, sizeof(on)) != 0)
+    {
         IWARNLOG("KeepAlive not set");
+        return;
     }
+
+    DBGLOG("mck - setKeepAlive(%d, %d, %d, %d)", on, time, intvl, probes);
+
+    if (!on)
+        return;
+
+    int srtn, optval;
+    socklen_t optlen = sizeof(optval);
+
+    optval = time;
+    srtn = setsockopt(sock, SOL_TCP, TCP_KEEPIDLE, &optval, optlen);
+    if (srtn != 0)
+    {
+        IWARNLOG("KeepAlive time not set");
+        return;
+    }
+
+    optval = intvl;
+    srtn = setsockopt(sock, SOL_TCP, TCP_KEEPINTVL, &optval, optlen);
+    if (srtn != 0)
+    {
+        IWARNLOG("KeepAlive probes not set");
+        return;
+    }
+
+    optval = probes;
+    srtn = setsockopt(sock, SOL_TCP, TCP_KEEPCNT, &optval, optlen);
+    if (srtn != 0)
+    {
+        IWARNLOG("KeepAlive probes not set");
+        return;
+    }
+}
+
+void CSocket::checkCfgKeepAlive()
+{
+    DBGLOG("mck - checkCfgKeepAlive()");
+
+    int time, intvl, probes;
+    if (queryKeepAlive(time, intvl, probes))
+        setKeepAlive(true, time, intvl, probes);
+}
+
+void CSocket::set_keep_alive(bool set)
+{
+    DBGLOG("mck - set_keep_alive(%d)", set);
+
+    if (set)
+    {
+        int time, intvl, probes;
+        (void)queryKeepAlive(time, intvl, probes);
+        setKeepAlive(true, time, intvl, probes);
+    }
+    else
+        setKeepAlive(false, 0, 0, 0);
 }
 
 
