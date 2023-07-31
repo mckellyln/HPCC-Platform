@@ -1074,10 +1074,15 @@ public:
         ForEachItem(i) {
             IGroup *g = queryGroup(i);
             unsigned cw = g?g->ordinality():1;
+
+            DBGLOG("mck - ret = %u cw = %u part = %u maxparts = %u", ret, cw, part, maxparts);
+
             ret += item(i).queryPartDiskMapping().numCopies(part,cw,maxparts);
             if (singleclusteroverride)
                 break;
         }
+
+        DBGLOG("mck - numCopies returns %u", ret);
         return ret;
     }
 
@@ -4368,6 +4373,9 @@ public:
     {
         // cluster TBD
         unsigned width = numParts();
+
+        DBGLOG("mck - width = %u", width);
+
         StringBuffer newdir;
         StringBuffer newmask;
         const char *diroverride = NULL;
@@ -4436,7 +4444,14 @@ public:
                 newPath.remove(0, myBase.length());
 
                 StringBuffer copyDir(baseDir);
+
+                DBGLOG("mck - baseDir = %s", baseDir.str());
+
                 adjustClusterDir(i, copy, copyDir);
+
+                DBGLOG("mck - copyDir = %s", copyDir.str());
+                DBGLOG("mck - newPath = %s", newPath.str());
+
                 fullname.clear().append(copyDir).append(newPath);
                 newNames.item(i).append(fullname);
             }
@@ -4500,6 +4515,9 @@ public:
                 }
                 Owned<IDistributedFilePart> part = file->getPart(idx);
                 unsigned copies = part->numCopies();
+
+                DBGLOG("mck - copies = %u", copies);
+
                 for (int copy = copies-1; copy>=0; copy--)
                 {
                     if ((copy==0)&&ignoreprim&&ignoreprim[idx])
@@ -4516,6 +4534,7 @@ public:
                     RemoteFilename newrfn;
                     newrfn.setPath(part->queryNode(copy)->endpoint(),newfn);
                     try {
+                        DBGLOG("mck - doPart()");
                         pok = doPart(part,copy!=0,oldrfn,newrfn,(copy==0)?doneprim[idx]:donerep[idx]);
 
                     }
@@ -4618,7 +4637,12 @@ public:
                 StringBuffer newfn;
                 newrfn.getRemotePath(newfn);
                 Owned<IFile> f = createIFile(oldrfn);
-                if (!isrep||f->exists()) { // ignore non-existant replicates
+
+                DBGLOG("mck - isrep = %d f->exists() = %d", isrep, f->exists());
+
+                // if (!isrep||f->exists()) { // ignore non-existant replicates
+
+                if ( (isrep == false) && (f->exists() == true) ) { // ignore non-existant replicates
                     f->move(newfn.str());
                     PROGLOG("Succeeded rename %s to %s",oldfn.str(),newfn.str());
                 }
@@ -4662,6 +4686,9 @@ public:
                                 StringBuffer newfn;
                                 newrfn.getRemotePath(newfn);
                                 Owned<IFile> f = createIFile(newrfn);
+
+                                DBGLOG("mck - recovery");
+
                                 f->move(oldfn.str());
                                 PROGLOG("Succeeded rename %s back to %s",newfn.str(),oldfn.str());
                                 break;

@@ -306,16 +306,25 @@ bool ClusterPartDiskMapSpec::isReplicated() const
 
 unsigned ClusterPartDiskMapSpec::numCopies(unsigned part,unsigned clusterwidth, unsigned filewidth)
 {
+    DBGLOG("mck - numCopies() part = %u clusterwidth = %u filewidth = %u", part, clusterwidth, filewidth);
+
     if (flags&CPDMSF_repeatedPart) {
         if (repeatedPart&CPDMSRP_lastRepeated) {
-            if (part+1==filewidth)
+            if (part+1==filewidth) {
+                DBGLOG("mck - pos 1");
                 return clusterwidth*defaultCopies;
+            }
         }
-        else if ((part==(repeatedPart&CPDMSRP_partMask))||(repeatedPart&CPDMSRP_allRepeated))
+        else if ((part==(repeatedPart&CPDMSRP_partMask))||(repeatedPart&CPDMSRP_allRepeated)) {
+            DBGLOG("mck - pos 2");
             return clusterwidth*defaultCopies;
-        if (repeatedPart&CPDMSRP_onlyRepeated)
+        }
+        if (repeatedPart&CPDMSRP_onlyRepeated) {
+            DBGLOG("mck - pos 3");
             return 0;
+        }
     }
+    DBGLOG("mck - pos 4, defaultCopies = %u", defaultCopies);
     return defaultCopies;
 }
 

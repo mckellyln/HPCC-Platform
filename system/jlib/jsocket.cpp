@@ -837,6 +837,9 @@ inline socklen_t setSockAddr(J_SOCKADDR &u, const IpAddress &ip,unsigned short p
     if (!IP6preferred) {
         if (ip.getNetAddress(sizeof(in_addr),&u.sin.sin_addr)==sizeof(in_addr)) {
             u.sin.sin_family = AF_INET; 
+
+            // DBGLOG("mck - 0 setting port to: %u", port);
+
             u.sin.sin_port = htons(port);
             return sizeof(u.sin);
         }
@@ -861,6 +864,9 @@ inline socklen_t setSockAddrAny(J_SOCKADDR &u, unsigned short port)
         u.sin6.sin6_port = htons(port);
         return sizeof(u.sin6);
     }
+
+    // DBGLOG("mck - 1 setting port to: %u", port);
+
     u.sin.sin_addr.s_addr = htonl(INADDR_ANY);
     u.sin.sin_family= AF_INET;                          
     u.sin.sin_port = htons(port);
@@ -976,12 +982,23 @@ int CSocket::pre_connect (bool block)
     }
 
     DEFINE_SOCKADDR(u);
+
+    // DBGLOG("mck - 1 before connect(), port = %u", u.sin.sin_port);
+
     if (targetip.isNull()) {
+        // DBGLOG("mck - targetip is null hostname: %s hostport: %u", hostname, hostport);
         set_return_addr(hostport,hostname);
         targetip.ipset(returnep);
     }
+
+    // DBGLOG("mck - xx hostport: %u", hostport);
+
     socklen_t ul = setSockAddr(u,targetip,hostport);
+
+    // DBGLOG("mck - 2 before connect(), port = %u", u.sin.sin_port);
+
     sock = ::socket(u.sa.sa_family, SOCK_STREAM, targetip.isIp4()?0:PF_INET6);
+
     owned = true;
     state = ss_pre_open;            // will be set to open by post_connect
     if (sock == INVALID_SOCKET) {
@@ -994,6 +1011,9 @@ int CSocket::pre_connect (bool block)
     STATS.activesockets++;
     int err = 0;
     set_nonblock(!block);
+
+    // DBGLOG("mck - about to connect(), port = %u", u.sin.sin_port);
+
     int rc = ::connect(sock, &u.sa, ul);
     if (rc==SOCKET_ERROR) {
         err = SOCKETERRNO();
@@ -1032,6 +1052,8 @@ int CSocket::post_connect ()
         state = ss_open;
         SocketEndpoint ep;
         localPort = getEndpoint(ep).port;
+
+        // DBGLOG("mck - after connect, local port is: %u", localPort);
     }
     else if ((err!=JSE_TIMEDOUT)&&(err!=JSE_CONNREFUSED)) // handled by caller
         LOGERR2(err,1,"post_connect");
@@ -1076,6 +1098,9 @@ void CSocket::open(int listen_queue_size,bool reuseports)
 #endif
     if (reuseports && listen_queue_size) {
         int on = 1;
+
+        // DBGLOG("mck - setting SO_REUSEADDR on sock %d", sock);
+
         setsockopt( sock, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on));
     }
 
@@ -1091,6 +1116,9 @@ void CSocket::open(int listen_queue_size,bool reuseports)
     else 
         ul = setSockAddrAny(u,hostport);
     int saverr;
+
+    // DBGLOG("mck - bind() on sock %d about to be called, port = %u", sock, hostport);
+
     if (::bind(sock, &u.sa, ul) != 0) {
         saverr = SOCKETERRNO();
         if (saverr==JSE_ADDRINUSE) {   // don't log as error (some usages probe ports)
@@ -3525,11 +3553,31 @@ static bool lookupHostAddress(const char *name,unsigned *netaddr)
         return false;
     }
 #if defined(__linux__) || defined (__APPLE__) || defined(getaddrinfo)
+
+    DBGLOG("mck - getaddrinfo(%s)", name);
+    PrintStackReport();
+
+    if (streq(name, "mck.com"))
+    {
+        Sleep(11000);
+        struct in_addr ia;
+        inet_aton("127.0.0.0", &ia);
+        memcpy(netaddr+3,&ia.s_addr,sizeof(in_addr));
+        netaddr[2] = 0xffff0000;
+        netaddr[1] = 0;
+        netaddr[0] = 0;
+        return true;
+    }
+
     struct addrinfo hints;
     memset(&hints,0,sizeof(hints));
     struct addrinfo  *addrInfo = NULL;
     for (;;) {
         memset(&hints,0,sizeof(hints));
+
+        if (!IP6preferred)
+            hints.ai_family = AF_INET; // mck - we only need IPv4 A records ...
+
         int ret = getaddrinfo(name, NULL , &hints, &addrInfo);
         if (!ret) 
             break;

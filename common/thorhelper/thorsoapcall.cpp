@@ -484,7 +484,7 @@ public:
         return (list.find(ep)!=NotFound);
     }
 
-    ISocket* connect(unsigned short port,
+    ISocket* connect1(unsigned short port,
                      char const* host,
                      const IContextLogger &logctx,
                      unsigned retries,
@@ -492,7 +492,9 @@ public:
                      IRoxieAbortMonitor * roxieAbortMonitor,
                      const IWSCRowProvider *blOptions)
     {
+        DBGLOG("mck - pos A");
         SocketEndpoint ep(host, port);
+        DBGLOG("mck - pos B");
         return connect(ep, logctx, retries, timeoutMS, roxieAbortMonitor, blOptions);
     }
 
@@ -1530,6 +1532,9 @@ void CWSCHelperThread::processQuery(ConstPointerArray &inputRows)
     xmlWriter->finalize();
 
     Owned<IWSCAsyncFor> casyncfor = createWSCAsyncFor(master, *xmlWriter, inputRows, (PTreeReaderOptions) xmlReadFlags);
+
+    DBGLOG("mck - casyncfor: numUrls: %u numUrlThreads: %u", master->numUrls, master->numUrlThreads);
+
     casyncfor->For(master->numUrls, master->numUrlThreads,false,true); // shuffle URLS for poormans load balance
 }
 
@@ -2289,8 +2294,13 @@ public:
         unsigned numRetries = 0;
         unsigned retryInterval = 0;
 
+        DBGLOG("mck - Do 1");
+
         Url &url = master->urlArray.item(idx);
         createHttpRequest(url, request);
+
+        DBGLOG("mck - Do 2");
+
         unsigned startidx = idx;
         while (!master->aborted)
         {
@@ -2300,13 +2310,18 @@ public:
             SocketEndpoint ep;
             Owned<ISocket> socket;
             CCycleTimer timer;
+
+            DBGLOG("mck - Do 3");
+
             for (;;)
             {
                 try
                 {
                     checkTimeLimitExceeded(&remainingMS);
                     Url &connUrl = master->proxyUrlArray.empty() ? url : master->proxyUrlArray.item(0);
+                    DBGLOG("mck - Do 4");
                     ep.set(connUrl.host.get(), connUrl.port);
+                    DBGLOG("mck - Do 5");
                     if (strieq(url.method, "https"))
                         proto = PersistentProtocol::ProtoTLS;
                     bool shouldClose = false;
@@ -2321,7 +2336,7 @@ public:
                     {
                         isReused = false;
                         keepAlive = true;
-                        socket.setown(blacklist->connect(connUrl.port, connUrl.host, master->logctx, (unsigned)master->maxRetries, master->timeoutMS, master->roxieAbortMonitor, master->rowProvider));
+                        socket.setown(blacklist->connect(ep, master->logctx, (unsigned)master->maxRetries, master->timeoutMS, master->roxieAbortMonitor, master->rowProvider));
                         if (proto == PersistentProtocol::ProtoTLS)
                         {
 #ifdef _USE_OPENSSL
