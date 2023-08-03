@@ -512,7 +512,9 @@ public:
     void        readtms(void* buf, size32_t min_size, size32_t max_size, size32_t &size_read, unsigned timedelaysecs);
     void        read(void* buf, size32_t size);
     size32_t    write(void const* buf, size32_t size);
+    size32_t    write2(void const* buf, size32_t size);
     size32_t    writetms(void const* buf, size32_t size, unsigned timeoutms=WAIT_FOREVER);
+    size32_t    writetms2(void const* buf, size32_t size, unsigned timeoutms=WAIT_FOREVER);
     size32_t    write_multiple(unsigned num,void const**buf, size32_t *size);
     size32_t    udp_write_to(const SocketEndpoint &ep,void const* buf, size32_t size);
     void        close();
@@ -2161,7 +2163,7 @@ EintrRetry:
 
 
 
-size32_t CSocket::write(void const* buf, size32_t size)
+size32_t CSocket::write2(void const* buf, size32_t size)
 {
     if (size==0)
         return 0;
@@ -2239,60 +2241,119 @@ EintrRetry:
     return res;
 }
 
-size32_t CSocket::writetms(void const* buf, size32_t size, unsigned timeoutms)
+size32_t CSocket::writetms2(void const* buf, size32_t size, unsigned timeoutms)
 {
-    if (size==0)
+    if (size == 0)
         return 0;
 
     if (state != ss_open)
-    {
         THROWJSOCKEXCEPTION(JSOCKERR_not_opened);
-    }
 
     if (timeoutms == WAIT_FOREVER)
         return write(buf, size);
 
-    const char *p = (const char *)buf;
-    unsigned start, elapsed;
-    start = msTick();
-    elapsed = 0;
-    size32_t nwritten = 0;
-    size32_t nleft = size;
-    unsigned rollover = 0;
+    cycle_t startcycles = get_cycles_now();
+    size32_t size_writ = size;
 
-    bool prevblock = set_nonblock(true);
+    int rc = 0;
+    unsigned rollOver = 0;
+    unsigned start = msTick();
 
-    while ( (nwritten < size) && (elapsed <= timeoutms) )
-    {
-        size32_t amnt = write(p,nleft);
+    size32_t res = 0;
+    do {
+        // NB - another method might be wait_write() without MSG_DONTWAIT ...
 
-        // can nonblock mode write() return -1 ?
-        if ( (amnt == 0) || (amnt == (size32_t)-1) )
-        {
-            if (++rollover >= 20)
-            {
-                rollover = 0;
-                Sleep(20);
-            }
+        unsigned retrycount = 100;
+EintrRetry:
+        if (sockmode == sm_udp_server)
+        {   // udp server
+            DEFINE_SOCKADDR(u);
+            socklen_t  ul = setSockAddr(u,returnep,returnep.port);
+            rc = sendto(sock, (char *)buf, size, MSG_DONTWAIT, &u.sa, ul);
         }
         else
         {
-            nwritten += amnt;
-            nleft -= amnt;
-            p += amnt;
+            rc = send(sock, (char *)buf, size, SEND_FLAGS|MSG_DONTWAIT);
         }
-        elapsed = msTick() - start;
-    }
 
-    set_nonblock(prevblock);
+        if (rc < 0)
+        {
+            int err = SOCKETERRNO();
+            if (BADSOCKERR(err))
+            {
+                LOGERR2(err, 7, "Socket closed during write");
+                THROWJSOCKEXCEPTION(err);
+            }
+            else if ((err == JSE_INTR) && (retrycount-- != 0)) {
+                LOGERR2(err, 7, "EINTR retrying");
+                goto EintrRetry;
+            }
+            else
+            {
+                if ( ((sockmode == sm_multicast) || (sockmode == sm_udp)) && (err == JSE_CONNREFUSED))
+                    break; // ignore
+                else if ((err == JSE_CONNRESET) || (err == JSE_CONNABORTED)
+#ifndef _WIN32
+                    || (err == EPIPE) || (err == JSE_TIMEDOUT)  // linux can raise these on broken pipe
+#endif
+                    )
+                {
+                    errclose();
+                    LOGERR2(err, 7, "write");
+                    err = JSOCKERR_broken_pipe;
+                    THROWJSOCKEXCEPTION(err);
+                }
+                else if (err != JSE_WOULDBLOCK)
+                {
+                    LOGERR2(err, 7, "write");
+                    THROWJSOCKEXCEPTION(err);
+                }
 
-    if (nwritten < size)
-    {
-        IERRLOG("writetms timed out; timeout: %u, nwritten: %u, size: %u", timeoutms, nwritten, size);
-        THROWJSOCKEXCEPTION(JSOCKERR_timeout_expired);
-    }
+                if (++rollOver >= 20)
+                {
+                    rollOver = 0;
+                    Sleep(1);
+                }
 
-    return nwritten;
+                rc = 0;
+            }
+        }
+        else if (rc == 0)
+        {
+            state = ss_shutdown;
+            THROWJSOCKEXCEPTION(JSOCKERR_graceful_close);
+        }
+        res += rc;
+        buf = (char *)buf + rc;
+        size -= rc;
+
+        if (size > 0)
+        {
+            unsigned elapsed = msTick() - start;
+            if (elapsed > timeoutms || timeoutms == 0)
+                THROWJSOCKEXCEPTION(JSOCKERR_timeout_expired);
+        }
+
+    } while (size != 0);
+
+    cycle_t elapsedCycles = get_cycles_now()-startcycles;
+    STATS.writes++;
+    STATS.writesize += size_writ;
+    STATS.writetimecycles += elapsedCycles;
+    stats.ioWrites++;
+    stats.ioWriteBytes += size_writ;
+    stats.ioWriteCycles += elapsedCycles;
+    return res;
+}
+
+size32_t CSocket::write(void const* buf, size32_t size)
+{
+    return writetms2(buf, size, 10000);
+}
+
+size32_t CSocket::writetms(void const* buf, size32_t size, unsigned timeoutms)
+{
+    return writetms2(buf, size, timeoutms);
 }
 
 bool CSocket::check_connection()
@@ -2476,6 +2537,9 @@ EintrRetry:
     size32_t left = total;
     byte *b = NULL;
     size32_t s=0;
+
+    DBGLOG("mck - write_multiple(%u, %u)", num, total);
+
     for (;;) {
         while (!s&&(i<num)) {
             b = (byte *)buf[i];
@@ -2483,6 +2547,7 @@ EintrRetry:
             i++;
         }
         if ((os==0)&&(s==left)) {
+            DBGLOG("mck - 1 write(%u)", s);
             write(b,s);     // go for it
             break;
         }
@@ -2496,10 +2561,12 @@ EintrRetry:
             s -= cpy;
             b += cpy;
             if (left==0)  {
+                DBGLOG("mck - 2 write(%u)", os);
                 write(outbuf,os);       
                 break;
             }
             else if (os==outbufsize) {
+                DBGLOG("mck - 3 write(%u)", os);
                 write(outbuf,os);   
                 os = 0;
             }

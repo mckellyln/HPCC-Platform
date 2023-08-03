@@ -168,7 +168,9 @@ public:
     virtual void read(void* buf, size32_t min_size, size32_t max_size, size32_t &size_read,unsigned timeoutsecs);
     virtual void readtms(void* buf, size32_t min_size, size32_t max_size, size32_t &size_read, unsigned timeoutms);
     virtual size32_t write(void const* buf, size32_t size);
+    virtual size32_t write2(void const* buf, size32_t size);
     virtual size32_t writetms(void const* buf, size32_t size, unsigned timeoutms=WAIT_FOREVER);
+    virtual size32_t writetms2(void const* buf, size32_t size, unsigned timeoutms=WAIT_FOREVER);
 
     void readTimeout(void* buf, size32_t min_size, size32_t max_size, size32_t &size_read, unsigned timeout, bool useSeconds);
 
@@ -864,7 +866,7 @@ void CSecureSocket::read(void* buf, size32_t min_size, size32_t max_size, size32
     readTimeout(buf, min_size, max_size, size_read, timeoutsecs, true);
 }
 
-size32_t CSecureSocket::write(void const* buf, size32_t size)
+size32_t CSecureSocket::write2(void const* buf, size32_t size)
 {
     if (size == 0)
         return 0;
@@ -887,7 +889,7 @@ size32_t CSecureSocket::write(void const* buf, size32_t size)
     return numwritten;
 }
 
-size32_t CSecureSocket::writetms(void const* buf, size32_t size, unsigned timeoutms)
+size32_t CSecureSocket::writetms2(void const* buf, size32_t size, unsigned timeoutms)
 {
     // timeoutms not implemented yet ...
     if (size == 0)
@@ -909,6 +911,16 @@ size32_t CSecureSocket::writetms(void const* buf, size32_t size, unsigned timeou
             throw createJSocketException(JSOCKERR_broken_pipe, errmsg);
     }
     return numwritten;
+}
+
+size32_t CSecureSocket::write(void const* buf, size32_t size)
+{
+    return writetms2(buf, size, 10000);
+}
+
+size32_t CSecureSocket::writetms(void const* buf, size32_t size, unsigned timeoutms)
+{
+    return writetms2(buf, size, timeoutms);
 }
 
 // ----------------------------
