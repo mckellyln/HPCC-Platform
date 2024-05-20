@@ -684,6 +684,30 @@ int main(int argc, const char* argv[])
 
     installDefaultFileHooks(dafileSrvInstance);
 
+    char *eptr = getenv("DAFILESRV_PORT");
+    if (eptr != NULL)
+    {
+        int lport = atoi(eptr);
+        if ( (lport >= 5000) && (lport <= 50000) )
+            listenep.port = lport;
+    }
+
+    eptr = getenv("DAFILESRV_SSLPORT");
+    if (eptr != NULL)
+    {
+        int lport = atoi(eptr);
+        if ( (lport >= 5000) && (lport <= 50000) )
+            sslport = lport;
+    }
+
+    eptr = getenv("DAFILESRV_ROWSERVICE_PORT");
+    if (eptr != NULL)
+    {
+        int lport = atoi(eptr);
+        if ( (lport >= 5000) && (lport <= 50000) )
+            dedicatedRowServicePort = lport;
+    }
+
 #ifndef _CONTAINERIZED
     if (isdaemon)
     {
