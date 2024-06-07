@@ -376,6 +376,27 @@ void Thread::init(const char *_name)
     stacksize = 0; // default is EXE default stack size  (set by /STACK)
 }
 
+int Thread::thread_cancel()
+{
+    int srtn = 0;
+#ifndef _WIN32
+    pthread_cancel(threadid);
+#endif
+    return srtn;
+}
+
+int Thread::setasynccancel()
+{
+    int srtn = 0;
+#ifndef _WIN32
+    int old;
+    srtn = pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &old);
+    if (!srtn)
+        srtn = pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &old);
+#endif
+    return srtn;
+}
+
 void Thread::captureThreadLoggingInfo()
 {
     ::saveThreadContext(savedCtx);

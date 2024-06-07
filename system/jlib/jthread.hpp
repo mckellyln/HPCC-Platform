@@ -145,6 +145,9 @@ public:
     bool join(unsigned timeout=INFINITE);
     void captureThreadLoggingInfo();                // Capture current thread logging context to be used by this thread when started
 
+    int setasynccancel();
+    int thread_cancel();
+
     virtual void start(bool inheritThreadContext);
     virtual void startRelease();        
 
