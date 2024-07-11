@@ -170,6 +170,7 @@ public:
         case JSOCKERR_handle_too_large:          return str.append("handle too large");
         case JSOCKERR_bad_netaddr:               return str.append("bad net addr");
         case JSOCKERR_ipv6_not_implemented:      return str.append("IPv6 not implemented");
+        case JSOCKERR_small_udp_packet:          return str.append("small UDP packet");
         // OS errors
 #ifdef _WIN32
         case WSAEINTR:              return str.append("WSAEINTR(10004) - Interrupted system call.");
@@ -1918,6 +1919,8 @@ void CSocket::readtms(void* buf, size32_t min_size, size32_t max_size, size32_t 
      * NB: If min_size==0 then will return asap if no data is avail.
      * NB: If min_size==0, but notified of graceful close, throw graceful close exception.
      * NB: timeout is meaningless if min_size is 0
+     *
+     * NB: for UDP, it will never try to read more. It will call recvfrom once, if it gets less than min_size, it will throw an exception.
      */
 
     sizeRead = 0;
@@ -1946,7 +1949,13 @@ EintrRetry:
         if (rc > 0)
         {
             sizeRead += rc;
-            if (sizeRead == max_size)
+            if (sockmode==sm_udp_server)
+            {
+                if (sizeRead >= min_size)
+                    break;
+                throwJSockException(JSOCKERR_small_udp_packet, "readtms: UDP packet smaller than min_size", __FILE__, __LINE__); // else, it is an error in UDP if receive anything less than min_size
+            }
+            else if (sizeRead == max_size)
                 break;
             // NB: will exit when blocked if sizeRead >= min_size
         }
@@ -1973,9 +1982,10 @@ EintrRetry:
                 }
                 else
                 {
-                    // NB: can only be here if sizeRead < min_size OR min_size = 0
                     if (err == JSE_WOULDBLOCK || err == EAGAIN) // if EGAIN or EWOULDBLOCK - no more data to read
                     {
+                        //NB: in UDP can only reach here if have not read anything so far.
+
                         if (sizeRead >= min_size)
                             break;
                         // otherwise, continue waiting for min_size

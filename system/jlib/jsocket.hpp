@@ -56,9 +56,10 @@ enum JSOCKET_ERROR_CODES {
         JSOCKERR_cancel_accept         = -8,    // accept
         JSOCKERR_connectionless_socket = -9,    // accept, cancel_accept
         JSOCKERR_graceful_close        = -10,   // read,send
-        JSOCKERR_handle_too_large      = -11,    // select, connect etc (linux only)
+        JSOCKERR_handle_too_large      = -11,   // select, connect etc (linux only)
         JSOCKERR_bad_netaddr           = -12,   // get/set net address
-        JSOCKERR_ipv6_not_implemented  = -13    // various
+        JSOCKERR_ipv6_not_implemented  = -13,   // various
+        JSOCKERR_small_udp_packet      = -14    // small udp packet
 };
 
 // Block operation flags

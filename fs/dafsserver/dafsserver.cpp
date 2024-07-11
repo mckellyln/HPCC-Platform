@@ -2928,7 +2928,7 @@ class CRemoteFileServer : implements IRemoteFileServer, public CInterface
         {
             try
             {
-                sock->read(dst, minSize, maxSize, szRead, WAIT_FOREVER, true);
+                sock->read(dst, minSize, maxSize, szRead, WAIT_FOREVER, false);
             }
             catch (IJSOCK_Exception *e)
             {
