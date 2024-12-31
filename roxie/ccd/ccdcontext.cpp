@@ -1530,9 +1530,9 @@ public:
         return options;
     }
 
-    virtual unsigned queryElapsedMs() const
+    virtual cycle_t queryElapsedCycles() const
     {
-        return elapsedTimer.elapsedMs();
+        return elapsedTimer.elapsedCycles();
     }
 
     const char *queryAuthToken()

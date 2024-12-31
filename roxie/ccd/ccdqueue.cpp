@@ -137,7 +137,7 @@ StringBuffer &RoxiePacketHeader::toString(StringBuffer &ret) const
 {
     const IpAddress serverIP = serverId.getIpAddress();
     ret.append("activityId=");
-    switch(activityId & ~ROXIE_PRIORITY_MASK)
+    switch (activityId & ~ROXIE_PRIORITY_MASK)
     {
     case 0: ret.append("IBYTI"); break;
     case ROXIE_UNLOAD: ret.append("ROXIE_UNLOAD"); break;
@@ -157,12 +157,12 @@ StringBuffer &RoxiePacketHeader::toString(StringBuffer &ret) const
         break;
     }
     ret.appendf(" uid=" RUIDF " pri=", uid);
-    switch(activityId & ROXIE_PRIORITY_MASK)
+    switch (activityId & ROXIE_PRIORITY_MASK)
     {
         case ROXIE_SLA_PRIORITY: ret.append("SLA"); break;
         case ROXIE_HIGH_PRIORITY: ret.append("HIGH"); break;
         case ROXIE_LOW_PRIORITY: ret.append("LOW"); break;
-        case ROXIE_SLA_PRIORITY + ROXIE_HIGH_PRIORITY: ret.append("BG"); break;
+        case ROXIE_BG_PRIORITY: ret.append("BG"); break;
         default: ret.append("???"); break;
     }
     ret.appendf(" queryHash=%" I64F "x ch=%u seq=%d cont=%d server=", queryHash, channel, overflowSequence, continueSequence);
@@ -2279,7 +2279,7 @@ public:
                     DBGLOG("No IBYTI received in time for delayed packet %s - enqueuing", header.toString(s).str());
                 }
                 unsigned __int64 IBYTIdelay = nsTick()-packet->queryEnqueuedTimeStamp();
-                switch(header.activityId & ROXIE_PRIORITY_MASK)
+                switch (header.activityId & ROXIE_PRIORITY_MASK)
                 {
                     case ROXIE_SLA_PRIORITY: slaQueue.enqueue(packet, IBYTIdelay); break;
                     case ROXIE_HIGH_PRIORITY: hiQueue.enqueue(packet, IBYTIdelay); break;
@@ -2904,7 +2904,7 @@ public:
                     StringBuffer s;
                     DBGLOG("Read roxie packet: %s", header.toString(s).str());
                 }
-                switch(header.activityId & ROXIE_PRIORITY_MASK)
+                switch (header.activityId & ROXIE_PRIORITY_MASK)
                 {
                     case ROXIE_SLA_PRIORITY: processMessage(mb, header, slaQueue); break;
                     case ROXIE_HIGH_PRIORITY: processMessage(mb, header, hiQueue); break;
@@ -3719,7 +3719,7 @@ public:
                 return; // No point sending the retry in localAgent mode
             }
             RoxieQueue *targetQueue;
-            switch(header.activityId & ROXIE_PRIORITY_MASK)
+            switch (header.activityId & ROXIE_PRIORITY_MASK)
             {
                 case ROXIE_SLA_PRIORITY: targetQueue = &slaQueue; break;
                 case ROXIE_HIGH_PRIORITY: targetQueue = &hiQueue; break;

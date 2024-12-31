@@ -316,9 +316,9 @@ public:
     {
         return ctx->queryOptions();
     }
-    virtual unsigned queryElapsedMs() const override
+    virtual cycle_t queryElapsedCycles() const override
     {
-        return ctx->queryElapsedMs();
+        return ctx->queryElapsedCycles();
     }
     virtual void addAgentsReplyLen(unsigned len, unsigned duplicates, unsigned resends) override
     {
@@ -4566,7 +4566,7 @@ public:
             int dynPriority = ctx->queryOptions().dynPriority;
             if (dynPriority < origPriority)
             {
-                unsigned newPri = ROXIE_SLA_PRIORITY + ROXIE_HIGH_PRIORITY;
+                unsigned newPri = ROXIE_BG_PRIORITY;
                 switch (dynPriority)
                 {
                     case 1:
@@ -4581,18 +4581,19 @@ public:
             }
 
             // TODO: perhaps check elapsed every Nth msg ?
-            if ( (dynPriorityAdjustTime > 0) && (origPriority == 0) && (dynPriority == 0) &&
-                 (ctx->queryElapsedMs() > dynPriorityAdjustTime) )
+            if ( (dynPriorityAdjustCycles > 0) && (origPriority == 0) && (dynPriority == 0) &&
+                 (ctx->queryElapsedCycles() > dynPriorityAdjustCycles) )
             {
                 ctx->queryOptions().dynPriority = -1;
-                UWARNLOG("WARNING: %d msec dynamic adjustment threshold reached, shifting query to BG queue", dynPriorityAdjustTime);
-                p->queryHeader().activityId |= (ROXIE_SLA_PRIORITY + ROXIE_HIGH_PRIORITY);
+                unsigned dynAdjustMsec = (dynPriorityAdjustCycles * 1000ULL) / queryOneSecCycles();
+                UWARNLOG("WARNING: %d msec dynamic adjustment threshold reached, shifting query to BG queue", dynAdjustMsec);
+                p->queryHeader().activityId |= ROXIE_BG_PRIORITY;
                 // TODO: what to do about still running activities' continuation/ack priorities ?
             }
 
             unsigned pmask = p->queryHeader().activityId & ROXIE_PRIORITY_MASK;
             if ((colocalArg == 0) &&     // not a child query activity??
-                    (pmask && (pmask != (ROXIE_SLA_PRIORITY + ROXIE_HIGH_PRIORITY))) &&
+                    ( (pmask == ROXIE_SLA_PRIORITY) || (pmask == ROXIE_HIGH_PRIORITY) ) &&
                     (p->queryHeader().overflowSequence == 0) &&
                     (p->queryHeader().continueSequence & ~CONTINUE_SEQUENCE_SKIPTO)==0)
                 p->queryHeader().retries |= ROXIE_FASTLANE;
