@@ -958,10 +958,17 @@ size32_t CSecureSocket::writetms(void const* buf, size32_t minSize, size32_t siz
     if (size == 0)
         return 0;
 
+    if (size > 500000)
+        DBGLOG("mck: CSecureSocket::writetms(%u, %u, %d) nonBlocking = %d", minSize, size, timeoutMs, nonBlocking);
+
     CCycleTimer timer;
     while (true)
     {
         int rc = SSL_write(m_ssl, buf, size);
+
+        if (size > 500000)
+            DBGLOG("mck: CSecureSocket::SSL_write() returns %d", rc);
+
         if (rc > 0)
         {
             // NB: minSize not used here, because not using SSL_MODE_ENABLE_PARTIAL_WRITE

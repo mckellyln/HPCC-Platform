@@ -2098,6 +2098,9 @@ readAnother:
             }
         }
 #endif
+
+        DBGLOG("mck: isHTTP = %d", isHTTP);
+
         if (isHTTP)
         {
             try

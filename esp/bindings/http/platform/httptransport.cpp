@@ -949,6 +949,17 @@ int CHttpMessage::send()
     if (shouldCompress(compressType))
         compressed = compressContent(logMsg?&originalContent:nullptr, compressType);
 
+    DBGLOG("mck: m_content.length() = %u", m_content.length());
+    DBGLOG("mck: m_content_length   = %llu", m_content_length);
+
+#if 0
+    for (int i=0; i<10000; i++)
+    {
+        m_content.append("dddddddddddddddddddddddddddddddddddddddd");
+        m_content_length += 40;
+    }
+#endif
+
     StringBuffer headers;
     constructHeaderBuffer(headers, true);
     

@@ -1895,6 +1895,12 @@ void CSafeSocket::flush()
         ForEachItemIn(idx, lengths)
             contentLength += lengths.item(idx);
 
+        StringBuffer extra;
+        for (int i=0; i<100000; i++)
+            extra.appendf("e%d%d%d", i, i+i, i+i+i);
+
+        contentLength += extra.length();
+
         HttpResponseHandler resp(sock, crit, httpKeepAlive);
 
         resp.init(contentLength, mlResponseFmt, respCompression);
@@ -1904,6 +1910,10 @@ void CSafeSocket::flush()
                 DBGLOG("Writing content head length %" I64F "u to HTTP %s", static_cast<__uint64>(contentHead.length()), resp.traceName());
             resp.write(contentHead.str(), contentHead.length());
         }
+
+        DBGLOG("mck Writing extra length %" I64F "u to HTTP %s", static_cast<__uint64>(extra.length()), resp.traceName());
+        resp.write(extra.str(), extra.length());
+
         ForEachItemIn(idx2, queued)
         {
             unsigned length = lengths.item(idx2);
@@ -1911,6 +1921,7 @@ void CSafeSocket::flush()
                 DBGLOG("Writing block length %d to HTTP %s", length, resp.traceName());
             resp.write(queued.item(idx2), length);
         }
+
         if (!adaptiveRoot || mlResponseFmt != MarkupFmt_JSON)
         {
             if (doTrace(traceHttp))
