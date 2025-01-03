@@ -652,15 +652,9 @@ protected:
 
         if (isSuspended)
             return createRoxieServerDummyActivityFactory(id, subgraphId, *this, NULL, TAKnone, node, false); // Is there actually any point?
-        switch (options.priority)
-        {
-        case 1:
-            rid |= ROXIE_HIGH_PRIORITY;
-            break;
-        case 2:
-            rid |= ROXIE_SLA_PRIORITY;
-            break;
-        }
+
+        rid |= priorityMask(options.priority);
+
         StringBuffer helperName;
         helperName.append("fAc").append(id);
         HelperFactory *helperFactory = dll->getFactory(helperName);

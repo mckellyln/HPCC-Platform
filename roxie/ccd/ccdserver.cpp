@@ -3629,6 +3629,24 @@ void throwRemoteException(IMessageUnpackCursor *extra)
     throwUnexpected();
 }
 
+unsigned priorityMask(int priority)
+{
+    unsigned newPri = ROXIE_BG_PRIORITY;
+    switch (priority)
+    {
+        case 2:
+            newPri = ROXIE_SLA_PRIORITY;
+            break;
+        case 1:
+            newPri = ROXIE_HIGH_PRIORITY;
+            break;
+        case 0:
+            newPri = ROXIE_LOW_PRIORITY;
+            break;
+    }
+    return newPri;
+}
+
 class CRemoteResultAdaptor : implements IEngineRowStream, implements IFinalRoxieInput, implements IExceptionHandler, public CInterface
 {
     friend class CRemoteResultMerger;
@@ -4566,16 +4584,7 @@ public:
             int dynPriority = ctx->queryOptions().dynPriority;
             if (dynPriority < origPriority)
             {
-                unsigned newPri = ROXIE_BG_PRIORITY;
-                switch (dynPriority)
-                {
-                    case 1:
-                        newPri = ROXIE_HIGH_PRIORITY;
-                        break;
-                    case 0:
-                        newPri = ROXIE_LOW_PRIORITY;
-                        break;
-                }
+                unsigned newPri = priorityMask(dynPriority);
                 p->queryHeader().activityId &= ~ROXIE_PRIORITY_MASK;
                 p->queryHeader().activityId |= newPri;
             }

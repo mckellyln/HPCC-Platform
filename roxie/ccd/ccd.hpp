@@ -485,6 +485,8 @@ inline unsigned getBondedChannel(unsigned partNo)
     return ((partNo - 1) % numChannels) + 1;
 }
 
+extern unsigned priorityMask(int priority);
+
 extern void FatalError(const char *format, ...)  __attribute__((format(printf, 1, 2)));
 extern unsigned getNextInstanceId();
 extern void closedown();
