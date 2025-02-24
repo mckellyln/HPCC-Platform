@@ -581,6 +581,7 @@ public:
     IMPLEMENT_IINTERFACE;
     void                      handleMessage(const LogMsg & msg)
     {
+        static unsigned lCnt = 0;
         CriticalBlock block(crit);
         checkRollover();
         if (printHeader)
@@ -595,6 +596,20 @@ public:
         fputs(curMsgText.str(), handle);
 
         if(flushes) fflush(handle);
+
+        if (lCnt++ >= 500)
+        {
+            lCnt = 0;
+            CriticalUnblock unblock(crit);
+#if defined(__linux__) && defined(POSIX_FADV_DONTNEED) && defined(SYNC_FILE_RANGE_WRITE)
+            int fd = fileno(handle);
+            if (fd >= 0)
+            {
+                sync_file_range(fd, 0, 0, SYNC_FILE_RANGE_WRITE); // async ...
+                posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+            }
+#endif
+        }
     }
     bool                      needsPrep() const { return false; }
     void                      prep() {}
