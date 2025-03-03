@@ -1181,8 +1181,8 @@ bool copyPostMortemLogging(const char *target, bool clear)
 #define MIN_LOGFILE_SIZE_LIMIT 10000
 #define LOG_LINE_SIZE_ESTIMATE 80
 
-RollingFileLogMsgHandler::RollingFileLogMsgHandler(const char * _filebase, const char * _fileextn, unsigned _fields, bool _append, bool _flushes, const char *initialName, const char *_alias, bool daily, long _maxLogFileSize)
-  : handle(0), messageFields(_fields), alias(_alias), filebase(_filebase), fileextn(_fileextn), append(_append), flushes(_flushes), maxLogFileSize(_maxLogFileSize)
+RollingFileLogMsgHandler::RollingFileLogMsgHandler(const char * _filebase, const char * _fileextn, unsigned _fields, bool _append, bool _flushes, const char *initialName, const char *_alias, bool daily, long _maxLogFileSize, bool _pgCacheFlush)
+  : handle(0), messageFields(_fields), alias(_alias), filebase(_filebase), fileextn(_fileextn), append(_append), flushes(_flushes), maxLogFileSize(_maxLogFileSize), pgCacheFlush(_pgCacheFlush)
 {
     if (_maxLogFileSize)
     {
@@ -2161,9 +2161,9 @@ ILogMsgHandler * getFileLogMsgHandler(const char * filename, const char * header
     }
 }
 
-ILogMsgHandler * getRollingFileLogMsgHandler(const char * filebase, const char * fileextn, unsigned fields, bool append, bool flushes, const char *initialName, const char *alias, bool daily, long maxLogSize)
+ILogMsgHandler * getRollingFileLogMsgHandler(const char * filebase, const char * fileextn, unsigned fields, bool append, bool flushes, const char *initialName, const char *alias, bool daily, long maxLogSize, bool pgCacheFlush)
 {
-    return new RollingFileLogMsgHandler(filebase, fileextn, fields, append, flushes, initialName, alias, daily, maxLogSize);
+    return new RollingFileLogMsgHandler(filebase, fileextn, fields, append, flushes, initialName, alias, daily, maxLogSize, pgCacheFlush);
 }
 
 ILogMsgHandler * getBinLogMsgHandler(const char * filename, bool append)
@@ -2988,6 +2988,7 @@ private:
     StringBuffer expandedLogSpec;//access via queryLogFileSpec()
     long         maxLogFileSize = 0;
 
+    bool         pgCacheFlush = false;
 private:
     void setDefaults()
     {
@@ -3010,6 +3011,7 @@ private:
         extension.set(".log");
         local = true;
         createAlias = true;
+        pgCacheFlush = false;
     }
 
 public:
@@ -3049,6 +3051,7 @@ public:
     //ILogMsgHandler fields
     void setAppend(const bool _append)       { append = _append; }
     void setFlushes(const bool _flushes)     { flushes = _flushes; }
+    void setPGFlush(const bool _pgCacheFlush)   { pgCacheFlush = _pgCacheFlush; }
     void setMsgFields(const unsigned _fields){ msgFields = _fields; }
 
     //ILogMsgFilter fields
@@ -3103,7 +3106,7 @@ public:
         ILogMsgHandler * lmh;
         if (rolling)
         {
-            lmh = getRollingFileLogMsgHandler(logFileSpec.str(), extension, msgFields, append, flushes, NULL, aliasFileSpec.str(), true, maxLogFileSize);
+            lmh = getRollingFileLogMsgHandler(logFileSpec.str(), extension, msgFields, append, flushes, NULL, aliasFileSpec.str(), true, maxLogFileSize, pgCacheFlush);
         }
         else
         {

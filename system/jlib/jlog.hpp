@@ -831,7 +831,7 @@ extern jlib_decl ILogMsgFilter * getSwitchLogMsgFilterOwn(ILogMsgFilter * switch
 
 extern jlib_decl ILogMsgHandler * getHandleLogMsgHandler(FILE * handle = stderr, unsigned fields = MSGFIELD_all, LogHandlerFormat logFormat = LOGFORMAT_table);
 extern jlib_decl ILogMsgHandler * getFileLogMsgHandler(const char * filename, const char * headertext = 0, unsigned fields = MSGFIELD_all, LogHandlerFormat logFormat = LOGFORMAT_table, bool append = false, bool flushes = true);
-extern jlib_decl ILogMsgHandler * getRollingFileLogMsgHandler(const char * filebase, const char * fileextn, unsigned fields = MSGFIELD_all, bool append = false, bool flushes = true, const char *initialName = NULL, const char *alias = NULL, bool daily = false, long maxLogSize = 0);
+extern jlib_decl ILogMsgHandler * getRollingFileLogMsgHandler(const char * filebase, const char * fileextn, unsigned fields = MSGFIELD_all, bool append = false, bool flushes = true, const char *initialName = NULL, const char *alias = NULL, bool daily = false, long maxLogSize = 0, bool _pgCacheFlush = false);
 extern jlib_decl ILogMsgHandler * getBinLogMsgHandler(const char * filename, bool append = false);
 extern jlib_decl ILogMsgHandler * getPostMortemLogMsgHandler(const char * filebase, unsigned maxLinesToKeep, unsigned _messageFields=MSGFIELD_all);
 
@@ -1317,6 +1317,7 @@ interface IComponentLogFileCreator : extends IInterface
     //ILogMsgHandler fields
     virtual void setAppend(const bool _append) = 0;         //append to existing logfile
     virtual void setFlushes(const bool _flushes) = 0;       //automatically flush
+    virtual void setPGFlush(const bool _pgCacheFlush) = 0;  //periodically flush log from pagecache
     virtual void setMsgFields(const unsigned _fields) = 0;  //fields/columns to be included in log
 
     //ILogMsgFilter fields

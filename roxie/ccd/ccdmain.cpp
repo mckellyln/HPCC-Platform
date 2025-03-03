@@ -944,6 +944,9 @@ int CCD_API roxie_main(int argc, const char *argv[], const char * defaultYaml)
         {
             Owned<IComponentLogFileCreator> lf = createComponentLogFileCreator(topology, "roxie");
             lf->setMaxDetail(TopDetail);
+            if (topology->getPropBool("@pgCacheFlushLog", false))
+                lf->setPGFlush(true);
+            else
             lf->beginLogging();
             logDirectory.set(lf->queryLogDir());
 

@@ -576,12 +576,11 @@ class RollingFileLogMsgHandler : implements ILogMsgHandler, public CInterface
 {
 public:
     RollingFileLogMsgHandler(const char * _filebase, const char * _fileextn, unsigned _fields = MSGFIELD_all, bool _append = false, bool _flushes = true,
-                             const char *initialName = NULL, const char *alias = NULL, bool daily = false, long _maxLogFileSize = 0);
+                             const char *initialName = NULL, const char *alias = NULL, bool daily = false, long _maxLogFileSize = 0, bool _pgCacheFlush = false);
     virtual ~RollingFileLogMsgHandler();
     IMPLEMENT_IINTERFACE;
     void                      handleMessage(const LogMsg & msg)
     {
-        static unsigned lCnt = 0;
         CriticalBlock block(crit);
         checkRollover();
         if (printHeader)
@@ -597,19 +596,25 @@ public:
 
         if(flushes) fflush(handle);
 
-        if (lCnt++ >= 500)
-        {
-            lCnt = 0;
-            CriticalUnblock unblock(crit);
 #if defined(__linux__) && defined(POSIX_FADV_DONTNEED) && defined(SYNC_FILE_RANGE_WRITE)
-            int fd = fileno(handle);
-            if (fd >= 0)
+        static unsigned lCnt = 0;
+        if (pgCacheFlush)
+        {
+            fprintf(stderr, "mck: pgCacheFlush\n");
+            if (lCnt++ >= 500)
             {
-                sync_file_range(fd, 0, 0, SYNC_FILE_RANGE_WRITE); // async ...
-                posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+                lCnt = 0;
+                CriticalUnblock unblock(crit);
+
+                int fd = fileno(handle);
+                if (fd >= 0)
+                {
+                    sync_file_range(fd, 0, 0, SYNC_FILE_RANGE_WRITE); // async ...
+                    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+                }
             }
-#endif
         }
+#endif
     }
     bool                      needsPrep() const { return false; }
     void                      prep() {}
@@ -639,6 +644,7 @@ protected:
     long                      maxLogFileSize = 0;
     long                      linesSinceSizeChecked = 0; // How many lines logged since last size check for rollover
     long                      sizeCheckNext = 0;         // how many lines to skip before checking size again
+    bool                      pgCacheFlush = false;
 };
 
 // Implementation of handler which writes message to file in binary form
