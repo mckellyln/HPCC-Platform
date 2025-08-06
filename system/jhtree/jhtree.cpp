@@ -1897,7 +1897,14 @@ const CJHTreeNode *CDiskKeyIndex::loadNode(cycle_t * fetchCycles, offset_t pos, 
             offset_t alignedPos = pos & readPosMask;
             byte * buffer = readCache.getBufferForUpdate(alignedPos, readSize);
 
+            // NOTE: There will only be a single call to loadNode for a given position, but there may be multiple calls to
+            // read at the aligned position.  This means the same block of file may be read multiple times.
+            //
+            // If the reads are remote and using the api then that would be inefficient (locally the second read will hit
+            // the linux page cache).  It is worth tracking the number of writes where the entry is already present,
+            // and if it is high then consider adding some protection - but that is hard to implement efficiently.
             size32_t sizeRead = io->read(alignedPos, readSize, buffer);
+
             // Check if we have read in the required node - sizeRead may not equal readSize at the end of the file
             if (unlikely(alignedPos + sizeRead < pos + nodeSize))
                 throw makeStringExceptionV(-1, "Error %d reading node at position %llx read %u at offset %llx", errno, pos, sizeRead, alignedPos);

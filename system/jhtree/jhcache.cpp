@@ -91,6 +91,8 @@ public:
     // if it returns false then the node is not in the cache.
     virtual bool read(unsigned fileId, offset_t offset, size32_t size, CCachedIndexRead & nodeData) override
     {
+        dbgassertex(size <= pageSize);
+
         CriticalBlock b(crit);
         if ((fileId != cache.file) || (cache.offset == invalidOffset))
             return onCacheMiss(fileId, offset, size);
@@ -124,6 +126,7 @@ public:
         //check to see if the data is already in the cache
         if ((fileId == cache.file) && (offset == cache.offset))
         {
+            // Keep a count of the number of times this occurs - if it is high we may need protection elsewhere
             DBGLOG("CDemoPageCache::write(%u, %llu) - data is already in the cache", fileId, offset);
             return;
         }
