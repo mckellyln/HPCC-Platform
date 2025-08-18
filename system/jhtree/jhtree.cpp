@@ -1937,7 +1937,7 @@ void initializeDiskPageCache(const IPropertyTree *config)
     if (!config)
         return;
 
-    if (config->getPropInt64("@size", 0) == 0)
+    if (config->getPropInt64("@sizeMB", 0) == 0)
         return;
 
     IPageCache * cache = nullptr;
@@ -1946,6 +1946,8 @@ void initializeDiskPageCache(const IPropertyTree *config)
     {
         if (strieq(type, "demo"))
             cache = createDemoPageCache(config);
+        else if (strieq(type, "mck"))
+            cache = createMyPageCache(config);
     }
 
     // Create a default page cache if no type is specified
