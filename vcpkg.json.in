@@ -94,6 +94,10 @@
             ]
         },
         {
+            "name": "jemalloc",
+            "platform": "linux"
+        },
+        {
             "name": "libcouchbase-cxx",
             "platform": "@VCPKG_COUCHBASEEMBED@"
         },
