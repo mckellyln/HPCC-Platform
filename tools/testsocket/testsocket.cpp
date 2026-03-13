@@ -473,6 +473,11 @@ int readResults(ISocket * socket, bool readBlocked, bool useHTTP, StringBuffer &
                 t += strlen(t)+1;
                 sendlen -= (t - mem);
             }
+
+            // non http exception response: 1419 Too many active queries ...
+            if (strstr(t, "<Source>Roxie</Source><Code>1419</Code><Message>Too many active queries</Message></Exception>"))
+                return 1419;
+
             if (echoResults && (!is_status || showStatus))
             {
                 fwrite(t, sendlen, 1, stdout);
@@ -521,10 +526,15 @@ int doSendQuery(const char * ip, unsigned port, const char * base)
     Owned<ISecureSocketContext> secureContext;
     __int64 starttime, endtime;
     StringBuffer ipstr;
+    unsigned retryInterval = 0;
+    unsigned numRetries = 0;
+    unsigned retryTimeMS = 0;
+    CTimeMon retryTm;
     CTimeMon tm;
     if (queryDelayMS)
         tm.reset(queryDelayMS);
 
+retry:
     try
     {
         if (strcmp(ip, ".")==0)
@@ -763,9 +773,10 @@ int doSendQuery(const char * ip, unsigned port, const char * base)
     StringBuffer result;
     int ret = readResults(socket, false, useHTTP, result, query, queryLen);
 
+    endtime = get_cycles_now();
+
     if ((ret == 0) && !justResults)
     {
-        endtime = get_cycles_now();
         CriticalBlock b(traceCrit);
 
         if (trace != NULL)
@@ -775,7 +786,7 @@ int doSendQuery(const char * ip, unsigned port, const char * base)
                 fprintf(trace, "query: %s\n", query);
 
                 if (saveResults)
-                    fprintf(trace, "result: %s\n", result.str());
+                    fprintf(trace, "result: (num retries:%u total retry time:%u) %s\n", numRetries, retryTimeMS, result.str());
             }
             else
             {
@@ -783,7 +794,7 @@ int doSendQuery(const char * ip, unsigned port, const char * base)
             }
 
             double queryTimeMS = (double)(cycle_to_nanosec(endtime - starttime))/1000000;
-            totalQueryMS += queryTimeMS;
+            totalQueryMS += (queryTimeMS + retryTimeMS);
             totalQueryCnt++;
             if (showTiming && rawOnly == false)
             {
@@ -796,6 +807,26 @@ int doSendQuery(const char * ip, unsigned port, const char * base)
     if (!persistConnections)
     {
         socket->close();
+    }
+
+    if (ret == 1419)
+    {
+        double queryTimeMS = (double)(cycle_to_nanosec(endtime - starttime))/1000000;
+        retryTm.reset(-1);
+        // similar code to soapcall retry ...
+        if (retryInterval)
+        {
+            int sleepTime = retryInterval + getRandom() % retryInterval;
+            Sleep(sleepTime);
+            retryInterval = (retryInterval*2 >= 5000) ? 5000: retryInterval*2;
+        }
+        else
+        {
+            retryInterval = 10;
+        }
+        numRetries++;
+        retryTimeMS += (unsigned)queryTimeMS + retryTm.elapsed();
+        goto retry;
     }
 
     if (queryDelayMS)
