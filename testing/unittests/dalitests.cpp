@@ -3546,9 +3546,9 @@ public:
 CPPUNIT_TEST_SUITE_REGISTRATION( DaliSysInfoLoggerTester );
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION( DaliSysInfoLoggerTester, "DaliSysInfoLoggerTester" );
 
-class FileReadPropertiesUpdaterTester : public CppUnit::TestFixture
+class DaliFileReadPropertiesUpdaterTester : public CppUnit::TestFixture
 {
-    CPPUNIT_TEST_SUITE(FileReadPropertiesUpdaterTester);
+    CPPUNIT_TEST_SUITE(DaliFileReadPropertiesUpdaterTester);
         CPPUNIT_TEST(testInit);
         CPPUNIT_TEST(testFileReadPropertiesUpdater);
     CPPUNIT_TEST_SUITE_END();
@@ -3632,8 +3632,8 @@ class FileReadPropertiesUpdaterTester : public CppUnit::TestFixture
     }
 
 public:
-    FileReadPropertiesUpdaterTester() : daliClientInitialized(false) {}
-    ~FileReadPropertiesUpdaterTester()
+    DaliFileReadPropertiesUpdaterTester() : daliClientInitialized(false) {}
+    ~DaliFileReadPropertiesUpdaterTester()
     {
         if (daliClientInitialized)
             daliClientEnd();
@@ -3678,8 +3678,8 @@ public:
     }
 };
 
-CPPUNIT_TEST_SUITE_REGISTRATION( FileReadPropertiesUpdaterTester );
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION( FileReadPropertiesUpdaterTester, "FileReadPropertiesUpdaterTester" );
+CPPUNIT_TEST_SUITE_REGISTRATION( DaliFileReadPropertiesUpdaterTester );
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION( DaliFileReadPropertiesUpdaterTester, "DaliFileReadPropertiesUpdaterTester" );
 
 
 static constexpr bool traceJobQueue = false;
