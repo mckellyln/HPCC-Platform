@@ -58,7 +58,7 @@
 #define PTREE_COMPRESS_THRESHOLD (4*1024)    // i.e. only use compress if > threshold
 #define PTREE_COMPRESS_BOTHER_PECENTAGE (80) // i.e. if it doesn't compress to <80 % of original size don't bother
 
-constexpr CompressionMethod defaultBinaryCompressionMethod = COMPRESS_METHOD_LZW_LITTLE_ENDIAN;
+constexpr CompressionMethod defaultBinaryCompressionMethod = COMPRESS_METHOD_ZSTD3;
 
 class NullPTreeIterator final : implements IPropertyTreeIterator
 {
