@@ -13965,7 +13965,9 @@ void activateQuery(IPropertyTree *queryRegistry, WUQueryActivationOptions activa
     StringBuffer cleanQueryName;
     appendUtf8XmlName(cleanQueryName, strlen(queryName), queryName);
 
-    if (activateOption == ACTIVATE_SUSPEND_PREVIOUS|| activateOption == ACTIVATE_DELETE_PREVIOUS)
+    DBGLOG("mck: activateQuery activateOption = %u", (int)activateOption);
+
+    if (activateOption == ACTIVATE_SUSPEND_PREVIOUS || activateOption == ACTIVATE_DELETE_PREVIOUS)
     {
         Owned<IPropertyTree> prevQuery = resolveQueryAlias(queryRegistry, cleanQueryName);
         setQueryAlias(queryRegistry, cleanQueryName, queryId);

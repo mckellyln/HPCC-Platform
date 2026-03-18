@@ -3068,12 +3068,24 @@ public:
         queryDirectory.set(dir);
     }
 
+    void setActivationMode(int mode)
+    {
+        if (mode == WUQueryActivationMode_Undefined)
+            activationMode = ACTIVATE_SUSPEND_PREVIOUS;
+        else
+            activationMode = mode;
+    }
+
     void addToBePublished(const char *wuid, const char *name, bool makeActive, const char *userid, IPropertyTree *query)
     {
         IPropertyTree *entry = toBePublished->addPropTree("Publish");
         entry->setProp("@wuid", wuid);
         entry->setProp("@name", name);
         entry->setPropBool("@makeActive", makeActive);
+
+        DBGLOG("mck: addToBePublished() makeActive = %d", makeActive);
+
+        entry->setPropInt("@activationMode", makeActive ? activationMode : DO_NOT_ACTIVATE);
         entry->setProp("@userid", userid);
         entry->addPropTree("Info", createPTreeFromIPT(query));
 
@@ -3094,7 +3106,13 @@ public:
             IPropertyTree &entry = entries->query();
             StringBuffer newQueryId;
             Owned<IWorkUnit> workunit = factory->updateWorkUnit(entry.queryProp("@wuid"));
-            addQueryToQuerySet(workunit, destQuerySet, entry.queryProp("@name"), entry.getPropBool("@makeActive") ? ACTIVATE_SUSPEND_PREVIOUS : DO_NOT_ACTIVATE, newQueryId, entry.queryProp("@userid"));
+            int queryActivationMode = DO_NOT_ACTIVATE;
+            if (entry.hasProp("@activationMode"))
+                queryActivationMode = entry.getPropInt("@activationMode");
+            else if (entry.getPropBool("@makeActive"))
+                queryActivationMode = ACTIVATE_SUSPEND_PREVIOUS;
+
+            addQueryToQuerySet(workunit, destQuerySet, entry.queryProp("@name"), (WUQueryActivationOptions)queryActivationMode, newQueryId, entry.queryProp("@userid"));
             copiedQueryIds.append(newQueryId);
             IPropertyTree *info = entry.queryPropTree("Info");
             if (info)
@@ -3143,7 +3161,7 @@ public:
         {
             existingQueryIds.append(existingQueryId.str());
             if (makeActive)
-                activateQuery(destQuerySet, ACTIVATE_SUSPEND_PREVIOUS, queryName, existingQueryId.str(), context->queryUserId());
+                activateQuery(destQuerySet, (WUQueryActivationOptions)activationMode, queryName, existingQueryId.str(), context->queryUserId());
             return;
         }
         addToBePublished(wuid, queryName, makeActive, context->queryUserId(), query);
@@ -3170,7 +3188,7 @@ public:
         {
             existingQueryIds.append(existingQueryId.str());
             if (makeActive)
-                activateQuery(destQuerySet, ACTIVATE_SUSPEND_PREVIOUS, queryName, existingQueryId.str(), context->queryUserId());
+                activateQuery(destQuerySet, (WUQueryActivationOptions)activationMode, queryName, existingQueryId.str(), context->queryUserId());
             return;
         }
         StringBuffer newQueryId;
@@ -3333,6 +3351,7 @@ private:
     bool cloneFilesEnabled = false;
     bool useSSL = false;
     unsigned updateFlags = 0;
+    int activationMode = ACTIVATE_SUSPEND_PREVIOUS;
     StringArray locations;
 
 public:
@@ -3364,6 +3383,20 @@ bool CWsWorkunitsEx::onWUCopyQuerySet(IEspContext &context, IEspWUCopyQuerySetRe
 
     QueryCloner cloner(&context, srcAddress, srcTarget, target, req.getSourceSSL());
     cloner.setQueryDirectory(queryDirectory);
+
+    // enum CWUQueryActivationMode { WUQueryActivationMode_Undefined=-1,CWUQueryActivationMode_NoActivate=0, CWUQueryActivationMode_Activate=1, CWUQueryActivationMode_ActivateSuspendPrevious=2, CWUQueryActivationMode_ActivateDeletePrevious=3, };
+
+    /*
+    enum WUQueryActivationOptions
+    DO_NOT_ACTIVATE = 0,
+    MAKE_ACTIVATE= 1,
+    ACTIVATE_SUSPEND_PREVIOUS = 2,
+    ACTIVATE_DELETE_PREVIOUS = 3,
+    DO_NOT_ACTIVATE_LOAD_DATA_ONLY = 4,
+    MAKE_ACTIVATE_LOAD_DATA_ONLY = 5
+    */
+
+    cloner.setActivationMode(req.getActivate());
 
     SCMStringBuffer process;
     StringBuffer publisherWuid(req.getDfuPublisherWuid());

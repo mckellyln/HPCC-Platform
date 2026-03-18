@@ -528,6 +528,7 @@ ESPrequest [nil_remove] WUCopyQuerySetRequest
     [min_ver("1.97")] string RemoteStorage;
     [min_ver("2.02")] string KeyCompression;
     [min_ver("2.05")] string DfuTargetPlane; //Override the destination plane for DFU copy
+    [min_ver("2.06")] ESPEnum WUQueryActivationMode Activate;
 };
 
 ESPresponse [exceptions_inline] WUCopyQuerySetResponse
