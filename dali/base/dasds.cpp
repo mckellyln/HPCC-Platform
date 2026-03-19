@@ -2108,7 +2108,7 @@ public: // data
     CheckedCriticalSection treeRegCrit;
     Owned<Thread> unhandledThread;
     unsigned writeTransactions;
-    bool ignoreExternals;
+    std::atomic<bool> ignoreExternals;
     StringAttr dataPath;
     StringAttr daliName;
     Owned<IPropertyTree> properties;
@@ -6829,11 +6829,6 @@ void CCovenSDSManager::loadStore(const bool *abort)
 
 void CCovenSDSManager::saveStore(const char *storeName, SaveStoreFlags flags)
 {
-    struct CIgnore
-    {
-        CIgnore() { SDSManager->ignoreExternals=true; }
-        ~CIgnore() { SDSManager->ignoreExternals=false; }
-    } ignore;
     if (hasMask(flags, ssf_stop))
     {
         // Dali is stopping, we don't care about any inflight transactions any more, we're about to save and quit
@@ -6845,6 +6840,14 @@ void CCovenSDSManager::saveStore(const char *storeName, SaveStoreFlags flags)
         // lock blockedSaveCrit after flush, since deltaWriter itself blocks on blockedSaveCrit
         deltaWriter.flush(); // transactions will be blocked at this stage, no new deltas will be added to writer
     }
+
+    if (ignoreExternals.exchange(true)) // NB: This is set during save to prevent serialization of externals during the save
+    {
+        Owned<IException> exception = makeStringException(0, "Save already in progress");
+        EXCLOG(exception);
+        throw exception.getClear();
+    }
+    COnScopeExit resetIgnoreExternals([&]() { ignoreExternals = false; });
     CHECKEDCRITICALBLOCK(blockedSaveCrit, fakeCritTimeout);
     iStoreHelper->saveStore(root, NULL);
     unsigned initNodeTableSize = allNodes.maxElements()+OVERFLOWSIZE;
