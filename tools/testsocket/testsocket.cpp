@@ -83,6 +83,9 @@ unsigned queryDelayMS = 0;
 unsigned queryAbsDelayMS = 0;  // ex: -u0 -qd 1000 for 1 q/s ...
 unsigned totalQueryCnt = 0;
 double totalQueryMS = 0.0;
+bool doRetries = false;
+double totalRetryMS = 0.0;
+unsigned numExceptions = 0;
 
 Owned<ISpan> serverSpan;
 //---------------------------------------------------------------------------
@@ -475,6 +478,15 @@ int readResults(ISocket * socket, bool readBlocked, bool useHTTP, StringBuffer &
                 t += strlen(t)+1;
                 sendlen -= (t - mem);
             }
+
+            if (strncmp(t, "<Exception>", 11) == 0)
+            {
+                numExceptions++;
+                // exception response: 1419 Too many active queries ...
+                if (doRetries && strstr(t, "<Code>1419</Code>"))
+                    return 1419;
+            }
+
             if (echoResults && (!is_status || showStatus))
             {
                 fwrite(t, sendlen, 1, stdout);
@@ -523,10 +535,15 @@ int doSendQuery(const char * ip, unsigned port, const char * base)
     Owned<ISecureSocketContext> secureContext;
     __int64 starttime, endtime;
     StringBuffer ipstr;
+    unsigned retryInterval = 0;
+    unsigned numRetries = 0;
+    unsigned retryTimeMS = 0;
+    CTimeMon retryTm;
     CTimeMon tm;
     if (queryDelayMS)
         tm.reset(queryDelayMS);
 
+retry:
     try
     {
         if (strcmp(ip, ".")==0)
@@ -783,9 +800,10 @@ int doSendQuery(const char * ip, unsigned port, const char * base)
         StringBuffer result;
         int ret = readResults(socket, false, useHTTP, result, query, queryLen);
 
+        endtime = get_cycles_now();
+
         if ((ret == 0) && !justResults)
         {
-            endtime = get_cycles_now();
             CriticalBlock b(traceCrit);
 
             if (trace != NULL)
@@ -804,11 +822,16 @@ int doSendQuery(const char * ip, unsigned port, const char * base)
 
                 double queryTimeMS = (double)(cycle_to_nanosec(endtime - starttime))/1000000;
                 totalQueryMS += queryTimeMS;
+                totalRetryMS += retryTimeMS;
                 totalQueryCnt++;
                 if (showTiming && rawOnly == false)
                 {
-                    fprintf(trace, "Time taken = %.3f msecs\n", queryTimeMS);
-                    fputs("----------------------------------------------------------------------------\n", trace);
+                    fprintf(trace, "Time taken = %.3f msecs", queryTimeMS);
+                    if (doRetries)
+                        fprintf(trace, " num retries = %u Total retry time = %u msec\n", numRetries, retryTimeMS);
+                    else
+                        fprintf(trace, "\n");
+                    fputs("----------------------------------------------------------------------------\n\n", trace);
                 }
             }
         }
@@ -816,6 +839,26 @@ int doSendQuery(const char * ip, unsigned port, const char * base)
         if (!persistConnections)
         {
             socket->close();
+        }
+
+        if (ret == 1419)
+        {
+            double queryTimeMS = (double)(cycle_to_nanosec(endtime - starttime))/1000000;
+            retryTm.reset(-1);
+            // similar code to soapcall retry ...
+            if (retryInterval)
+            {
+                int sleepTime = retryInterval + getRandom() % retryInterval;
+                Sleep(sleepTime);
+                retryInterval = (retryInterval*2 >= 5000) ? 5000: retryInterval*2;
+            }
+            else
+            {
+                retryInterval = 10;
+            }
+            retryTimeMS += (unsigned)queryTimeMS + retryTm.elapsed();
+            if (numRetries++ < 1000)
+                goto retry;
         }
     }
     else
@@ -904,6 +947,7 @@ void usage(int exitCode)
     printf("  -rs       remote stream request\n");
     printf("  -rsr      force remote stream resend per continuation request\n");
     printf("  -rssc     send cursor per continuation request\n");
+    printf("  -rt       retry query submit with server too busy response\n");
     printf("  -s        add stars to indicate transfer packets\n");
     printf("  -ss       suppress XML Status messages to screen (always suppressed from tracefile)\n");
     printf("  -ssl      use ssl\n");
@@ -1090,6 +1134,11 @@ int main(int argc, char **argv)
             fromMultiFile = true;
             ++arg;
         }
+        else if (stricmp(argv[arg], "-rt") == 0)
+        {
+            doRetries = true;
+            ++arg;
+        }
         else if (stricmp(argv[arg], "-ss") == 0)
         {
             showStatus = false;
@@ -1108,7 +1157,11 @@ int main(int argc, char **argv)
         else if (memicmp(argv[arg], "-u", 2) == 0)
         {
             multiThread = true;
-            multiThreadMax = atoi(argv[arg]+2);
+            // allow for both -uX and -u X formats ...
+            if ((int)strlen(argv[arg]) > 2)
+                multiThreadMax = atoi(argv[arg]+2);
+            else if ((arg + 1) < argc)
+                multiThreadMax = atoi(argv[++arg]);
             if (multiThreadMax)
                 okToSend.signal(multiThreadMax);
             ++arg;
@@ -1367,7 +1420,14 @@ int main(int argc, char **argv)
                 if (totalQueryCnt)
                 {
                     double timePerQueryMS = totalQueryMS / totalQueryCnt;
-                    fprintf(trace, "Total Queries: %u Avg t/q = %.3f msecs\n", totalQueryCnt, timePerQueryMS);
+                    fprintf(trace, "Total Queries: %u (exceptions: %u) Avg t/q = %.3f msecs", totalQueryCnt, numExceptions, timePerQueryMS);
+                    if (doRetries)
+                    {
+                        timePerQueryMS = (totalQueryMS + totalRetryMS) / totalQueryCnt;
+                        fprintf(trace, ", Avg t/q including retries = %.3f msec\n", timePerQueryMS);
+                    }
+                    else
+                        fprintf(trace, "\n");
                 }
                 fputs("----------------------------------------------------------------------------\n", trace);
             }
