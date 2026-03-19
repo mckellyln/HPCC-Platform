@@ -195,9 +195,18 @@ public:
                     if (success)
                         mb.append(connectionInfo);
                 }
-                else if (0 == stricmp(id, "save")) {
+                else if (0 == stricmp(id, "save"))
+                {
                     PROGLOG("Dalidiag requests SDS save");
-                    querySDSServer().saveRequest();
+                    try
+                    {
+                        querySDSServer().saveRequest();
+                    }
+                    catch (IException *e)
+                    {
+                        serializeException(e, mb);
+                        e->Release();
+                    }
                 }
                 else if (0 == stricmp(id, "settracetransactions")) {
                     PROGLOG("Dalidiag requests Trace Transactions");

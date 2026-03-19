@@ -601,6 +601,8 @@ unsigned deleteLogSysInfoMsg(IConstSysInfoLoggerMsgFilter * msgFilter)
 {
     std::vector<std::string> deleteXpathList;
     Owned<IRemoteConnection> conn = querySDS().connect(SYS_INFO_ROOT, myProcessSession(), RTM_LOCK_WRITE, SDS_LOCK_TIMEOUT);
+    if (!conn)
+        return 0;
     {
         Owned<ISysInfoLoggerMsgIterator> iter = createSysInfoLoggerMsgIterator(conn, msgFilter, false);
         ForEach(*iter)

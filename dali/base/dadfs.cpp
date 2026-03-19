@@ -5259,8 +5259,9 @@ public:
                 StringBuffer newfn;
                 newrfn.getRemotePath(newfn);
                 Owned<IFile> f = createIFile(oldrfn);
+                Owned<IFile> destFile = createIFile(newrfn);
                 if (!isrep||f->exists()) { // ignore non-existant replicates
-                    f->move(newfn.str());
+                    f->move(destFile->queryFilename());
                     PROGLOG("Succeeded rename %s to %s",oldfn.str(),newfn.str());
                 }
                 done = true;

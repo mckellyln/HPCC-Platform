@@ -34,14 +34,45 @@ using namespace std::chrono;
 
 bool areManagedIdentitiesEnabled()
 {
-    // Check for Azure AD Workload Identity or legacy managed identity
-    static bool hasWorkloadIdentity = std::getenv("AZURE_CLIENT_ID") &&
-                                     std::getenv("AZURE_TENANT_ID") &&
-                                     std::getenv("AZURE_FEDERATED_TOKEN_FILE");
+    static bool hasIMDS = []() {
+        // Check for Azure AD Workload Identity or legacy managed identity
+        if (std::getenv("AZURE_CLIENT_ID") && std::getenv("AZURE_TENANT_ID") && std::getenv("AZURE_FEDERATED_TOKEN_FILE"))
+            return true;
 
-    static bool hasManagedIdentity = std::getenv("MSI_ENDPOINT") || std::getenv("IDENTITY_ENDPOINT");
+        // Check for App Service / Container Instances managed identity
+        if (std::getenv("MSI_ENDPOINT") || std::getenv("IDENTITY_ENDPOINT"))
+            return true;
 
-    return hasWorkloadIdentity || hasManagedIdentity;
+        // Check for Azure VM managed identity via IMDS (Instance Metadata Service) probe (once).
+        // 169.254.169.254 is a non-routable link-local address that Azure uses to expose the
+        // IMDS to VMs running on its platform. It is only reachable from within an Azure VM.
+        // See: https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-to-use-vm-token#get-a-token-using-http
+        try
+        {
+            Azure::Core::Http::Request request(Azure::Core::Http::HttpMethod::Get, Azure::Core::Url("http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"));
+            request.SetHeader("Metadata", "true");
+
+            auto transport = std::make_shared<Azure::Core::Http::CurlTransport>();
+            Azure::Core::Context context;
+            // Use a short timeout to avoid blocking startup if not on Azure
+            context = context.WithDeadline(std::chrono::system_clock::now() + std::chrono::seconds(2));
+
+            auto response = transport->Send(request, context);
+            auto statusCode = response->GetStatusCode();
+            // 200 = identity assigned and working
+            // 400 = IMDS reachable but identity may not be properly configured
+            if (statusCode == Azure::Core::Http::HttpStatusCode::BadRequest)
+                OWARNLOG("Azure IMDS probe returned 400 (Bad Request) — managed identity endpoint is reachable but may not be properly configured");
+            return statusCode == Azure::Core::Http::HttpStatusCode::Ok;
+        }
+        catch (...)
+        {
+            // Connection refused, timeout, not on Azure — IMDS not available
+            return false;
+        }
+    }();
+
+    return hasIMDS;
 }
 
 std::shared_ptr<Azure::Storage::StorageSharedKeyCredential> getAzureSharedKeyCredential(const char * accountName, const char * secretName)

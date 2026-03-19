@@ -640,7 +640,16 @@ int main(int _argc, char* argv[])
                     MemoryBuffer mb;
                     mb.append("save");
                     getDaliDiagnosticValue(mb);
-                    PROGLOG("SDS store saved");
+                    Owned<IException> exception;
+                    if (mb.length())
+                        exception.setown(deserializeException(mb));
+                    if (exception)
+                    {
+                        StringBuffer errMsg;
+                        PROGLOG("Dali SDS save failed: [%d, %s]", exception->errorCode(), exception->errorMessage(errMsg).str());
+                    }
+                    else
+                        PROGLOG("SDS store saved");
                     break;
                 }
                 if (0 == stricmp(arg, "locks")) {
