@@ -1436,6 +1436,7 @@ namespace DataMasking
                 PropertyMap::const_iterator it;
                 const char* name = nullptr;
                 const char* value = nullptr;
+                virtual ~PropertyExtractor() = default;
                 virtual const char* queryName() const override { return name; }
                 virtual const char* queryValue() const override { return value; }
                 IDataMaskingContextProperty& operator () (PropertyMap::const_iterator _it)
