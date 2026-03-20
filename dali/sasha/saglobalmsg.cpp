@@ -20,7 +20,6 @@
 #include "jlog.ipp"
 #include "jtime.hpp"
 
-#include "saserver.hpp"
 #include "sautil.hpp"
 #include "saglobalmsg.hpp"
 #include "sysinfologger.hpp"
